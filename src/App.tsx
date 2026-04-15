@@ -1,121 +1,149 @@
-import { useState } from 'react'
-import reactLogo from './assets/react.svg'
-import viteLogo from './assets/vite.svg'
-import heroImg from './assets/hero.png'
-import './App.css'
+/**
+ * MindRound 应用入口
+ * @description 微信风格聊天应用，支持单聊和群聊
+ */
+import { useState, useEffect, useMemo } from 'react';
+import { ContactsPage, SessionsPage, ChatPage, SettingsPage, CreateGroupPage } from './ui/pages';
+import { MockAdapter } from './core/infrastructure/platforms/MockAdapter';
+import { FileChatRepository } from './core/infrastructure/repositories/FileChatRepository';
+import { FilePersonaRepository } from './core/infrastructure/repositories/FilePersonaRepository';
+import { FileConfigRepository } from './core/infrastructure/repositories/FileConfigRepository';
+import { HttpApiRepository } from './core/infrastructure/repositories/HttpApiRepository';
+import { ChatService } from './core/services/ChatService';
+import { ContextBuilderService } from './core/services/ContextBuilderService';
+import { createChatStore } from './ui/stores/chatStore';
+import './App.css';
 
+/**
+ * 页面类型
+ */
+type Page = 'sessions' | 'contacts' | 'chat' | 'settings' | 'create-group';
+
+/**
+ * 应用组件
+ */
 function App() {
-  const [count, setCount] = useState(0)
+  const [currentPage, setCurrentPage] = useState<Page>('sessions');
+  const [currentChatId, setCurrentChatId] = useState<string | null>(null);
+
+  // 依赖注入的实例
+  const platformAdapter = useMemo(() => new MockAdapter(), []);
+  const configRepo = useMemo(() => new FileConfigRepository(platformAdapter), [platformAdapter]);
+  const chatRepo = useMemo(() => new FileChatRepository(platformAdapter), [platformAdapter]);
+  const personaRepo = useMemo(() => new FilePersonaRepository(platformAdapter), [platformAdapter]);
+
+  // API 仓储需要初始配置
+  const [apiRepo] = useState(() => new HttpApiRepository(
+    'https://api.openai.com/v1',
+    '',
+    'gpt-4o'
+  ));
+
+  const contextBuilder = useMemo(
+    () => new ContextBuilderService(chatRepo, personaRepo),
+    [chatRepo, personaRepo]
+  );
+  const chatService = useMemo(
+    () => new ChatService(chatRepo, apiRepo, contextBuilder),
+    [chatRepo, apiRepo, contextBuilder]
+  );
+  const chatStore = useMemo(() => createChatStore(chatService), [chatService]);
+
+  // 加载会话列表
+  useEffect(() => {
+    chatStore.loadChats();
+  }, [chatStore]);
+
+  /**
+   * 导航到指定页面
+   */
+  const navigateTo = (page: Page, chatId?: string) => {
+    setCurrentPage(page);
+    if (chatId) {
+      setCurrentChatId(chatId);
+    }
+  };
+
+  /**
+   * 创建单聊
+   */
+  const handleCreateSingleChat = async (personaId: string) => {
+    await chatStore.createSingleChat(personaId);
+    // 获取刚创建的会话
+    const chats = await (chatService as unknown as { chatRepo: { findAll: () => Promise<unknown[]> } }).chatRepo.findAll();
+    if (chats.length > 0) {
+      navigateTo('chat', (chats[0] as { id: string }).id);
+    } else {
+      navigateTo('sessions');
+    }
+  };
+
+  /**
+   * 创建群聊完成
+   */
+  const handleGroupCreated = (chatId: string) => {
+    navigateTo('chat', chatId);
+  };
+
+  /**
+   * 进入设置页面
+   */
+  const handleOpenSettings = () => {
+    navigateTo('settings');
+  };
 
   return (
-    <>
-      <section id="center">
-        <div className="hero">
-          <img src={heroImg} className="base" width="170" height="179" alt="" />
-          <img src={reactLogo} className="framework" alt="React logo" />
-          <img src={viteLogo} className="vite" alt="Vite logo" />
-        </div>
-        <div>
-          <h1>Get started</h1>
-          <p>
-            Edit <code>src/App.tsx</code> and save to test <code>HMR</code>
-          </p>
-        </div>
-        <button
-          className="counter"
-          onClick={() => setCount((count) => count + 1)}
-        >
-          Count is {count}
-        </button>
-      </section>
+    <div className="app">
+      {currentPage === 'sessions' && (
+        <SessionsPage
+          chatService={chatService}
+          personaRepository={personaRepo}
+          onSelectChat={(id) => navigateTo('chat', id)}
+          onCreateGroup={() => navigateTo('create-group')}
+          onContacts={() => navigateTo('contacts')}
+        />
+      )}
 
-      <div className="ticks"></div>
+      {currentPage === 'contacts' && (
+        <ContactsPage
+          personaRepository={personaRepo}
+          onSelectPersona={(id) => handleCreateSingleChat(id)}
+          onBack={() => navigateTo('sessions')}
+        />
+      )}
 
-      <section id="next-steps">
-        <div id="docs">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#documentation-icon"></use>
-          </svg>
-          <h2>Documentation</h2>
-          <p>Your questions, answered</p>
-          <ul>
-            <li>
-              <a href="https://vite.dev/" target="_blank">
-                <img className="logo" src={viteLogo} alt="" />
-                Explore Vite
-              </a>
-            </li>
-            <li>
-              <a href="https://react.dev/" target="_blank">
-                <img className="button-icon" src={reactLogo} alt="" />
-                Learn more
-              </a>
-            </li>
-          </ul>
-        </div>
-        <div id="social">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#social-icon"></use>
-          </svg>
-          <h2>Connect with us</h2>
-          <p>Join the Vite community</p>
-          <ul>
-            <li>
-              <a href="https://github.com/vitejs/vite" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#github-icon"></use>
-                </svg>
-                GitHub
-              </a>
-            </li>
-            <li>
-              <a href="https://chat.vite.dev/" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#discord-icon"></use>
-                </svg>
-                Discord
-              </a>
-            </li>
-            <li>
-              <a href="https://x.com/vite_js" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#x-icon"></use>
-                </svg>
-                X.com
-              </a>
-            </li>
-            <li>
-              <a href="https://bsky.app/profile/vite.dev" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#bluesky-icon"></use>
-                </svg>
-                Bluesky
-              </a>
-            </li>
-          </ul>
-        </div>
-      </section>
+      {currentPage === 'chat' && currentChatId && (
+        <ChatPage
+          chatId={currentChatId}
+          chatService={chatService}
+          personaRepository={personaRepo}
+          onBack={() => navigateTo('sessions')}
+        />
+      )}
 
-      <div className="ticks"></div>
-      <section id="spacer"></section>
-    </>
-  )
+      {currentPage === 'settings' && (
+        <SettingsPage
+          configRepository={configRepo}
+          platformAdapter={platformAdapter}
+          onBack={() => navigateTo('sessions')}
+        />
+      )}
+
+      {currentPage === 'create-group' && (
+        <CreateGroupPage
+          chatService={chatService}
+          personaRepository={personaRepo}
+          onCreated={handleGroupCreated}
+          onBack={() => navigateTo('sessions')}
+        />
+      )}
+
+      {/* 设置入口（始终可见） */}
+      <button className="settings-fab" onClick={handleOpenSettings}>
+        ⚙
+      </button>
+    </div>
+  );
 }
 
-export default App
+export default App;
