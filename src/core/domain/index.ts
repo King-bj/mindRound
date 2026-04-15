@@ -4,3 +4,4 @@
 export * from './Message';
 export * from './Chat';
 export * from './Persona';
+export * from './Memory';

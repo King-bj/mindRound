@@ -3,3 +3,4 @@
  */
 export * from './ChatService';
 export * from './ContextBuilderService';
+export * from './MemoryService';
