@@ -22,3 +22,12 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Claude Code
+.claude/
+
+# Test coverage
+coverage/
+
+# Tauri
+src-tauri/target/
