@@ -97,7 +97,7 @@ You are Steve Jobs...`;
       expect(persona.name).toBe('乔布斯');
       expect(persona.description).toBe('苹果联合创始人');
       expect(persona.tags).toEqual(['设计', '创新']);
-      expect(persona.avatarPath).toBeNull();
+      expect(persona.avatar).toBeNull();
     });
 
     it('should use id as fallback name when not in frontmatter', () => {
@@ -111,11 +111,11 @@ Content`;
       expect(persona.name).toBe('my-persona-id');
     });
 
-    it('should set avatarPath when provided', () => {
-      const avatarPath = '/path/to/avatar.png';
-      const persona = createPersonaFromSkill('test', skillContent, avatarPath);
+    it('should set avatar when provided', () => {
+      const avatar = '/path/to/avatar.png';
+      const persona = createPersonaFromSkill('test', skillContent, avatar);
 
-      expect(persona.avatarPath).toBe(avatarPath);
+      expect(persona.avatar).toBe(avatar);
     });
 
     it('should handle empty tags when not provided', () => {

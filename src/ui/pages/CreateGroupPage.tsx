@@ -59,7 +59,6 @@ export const CreateGroupPage: React.FC<CreateGroupPageProps> = ({
 
   return (
     <div className="create-group-page">
-      {/* 顶部栏 */}
       <header className="page-header">
         <button className="back-btn" onClick={onBack}>
           ←
@@ -74,7 +73,6 @@ export const CreateGroupPage: React.FC<CreateGroupPageProps> = ({
         </button>
       </header>
 
-      {/* 群名称 */}
       <div className="group-name-section">
         <input
           type="text"
@@ -86,12 +84,10 @@ export const CreateGroupPage: React.FC<CreateGroupPageProps> = ({
         />
       </div>
 
-      {/* 选择提示 */}
       <div className="selection-hint">
         已选择 {selectedIds.size} 人（至少选2人）
       </div>
 
-      {/* 作者列表 */}
       <div className="persona-select-list">
         {personas.map((persona) => {
           const isSelected = selectedIds.has(persona.id);

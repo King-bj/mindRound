@@ -6,6 +6,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import type { Chat } from '../../core/domain/Chat';
 import type { IChatService } from '../../core/services/ChatService';
 import type { IPersonaRepository } from '../../core/repositories/IPersonaRepository';
+import { formatRelativeTime } from '../../core/utils/time';
 
 interface SessionsPageProps {
   chatService: IChatService;
@@ -13,26 +14,6 @@ interface SessionsPageProps {
   onSelectChat: (chatId: string) => void;
   onCreateGroup: () => void;
   onContacts: () => void;
-}
-
-/**
- * 格式化时间戳为友好显示
- */
-function formatTimestamp(timestamp: string): string {
-  const date = new Date(timestamp);
-  const now = new Date();
-  const diffMs = now.getTime() - date.getTime();
-  const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
-
-  if (diffDays === 0) {
-    return date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
-  } else if (diffDays === 1) {
-    return '昨天';
-  } else if (diffDays < 7) {
-    return `${diffDays}天前`;
-  } else {
-    return date.toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' });
-  }
 }
 
 export const SessionsPage: React.FC<SessionsPageProps> = ({
@@ -46,18 +27,15 @@ export const SessionsPage: React.FC<SessionsPageProps> = ({
   const [isLoading, setIsLoading] = useState(false);
   const [personaNames, setPersonaNames] = useState<Record<string, string>>({});
 
-  /**
-   * 加载会话列表
-   */
   const loadChats = useCallback(async () => {
     setIsLoading(true);
     try {
-      // 通过 chatService 获取会话列表（需要实现 findAll）
-      const allChats = await (chatService as unknown as { chatRepo: { findAll: () => Promise<Chat[]> } }).chatRepo.findAll();
+      const [allChats, personas] = await Promise.all([
+        chatService.getChats(),
+        personaRepository.scan(),
+      ]);
       setChats(allChats);
 
-      // 加载关联的人格名称
-      const personas = await personaRepository.scan();
       const names: Record<string, string> = {};
       personas.forEach((p) => {
         names[p.id] = p.name;
@@ -76,7 +54,6 @@ export const SessionsPage: React.FC<SessionsPageProps> = ({
 
   return (
     <div className="sessions-page">
-      {/* 顶部栏 */}
       <header className="page-header">
         <button className="contacts-btn" onClick={onContacts}>
           通讯录
@@ -87,7 +64,6 @@ export const SessionsPage: React.FC<SessionsPageProps> = ({
         </button>
       </header>
 
-      {/* 会话列表 */}
       <div className="chat-list">
         {chats.length === 0 && !isLoading ? (
           <div className="empty-state">
@@ -119,7 +95,7 @@ export const SessionsPage: React.FC<SessionsPageProps> = ({
                 <div className="chat-info">
                   <div className="chat-header">
                     <span className="chat-name">{displayName}</span>
-                    <span className="chat-time">{formatTimestamp(chat.updatedAt)}</span>
+                    <span className="chat-time">{formatRelativeTime(chat.updatedAt)}</span>
                   </div>
                   <span className="chat-preview">
                     {isGroup

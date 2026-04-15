@@ -10,7 +10,7 @@ export interface Persona {
   /** 人格描述 */
   description: string;
   /** 头像路径（可选） */
-  avatarPath: string | null;
+  avatar: string | null;
   /** 标签列表 */
   tags: string[];
 }
@@ -94,7 +94,7 @@ export function createPersonaFromSkill(
     id,
     name: metadata.name || id,
     description: metadata.description || '',
-    avatarPath,
+    avatar: avatarPath,
     tags: metadata.tags || [],
   };
 }

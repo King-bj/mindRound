@@ -63,6 +63,19 @@ export interface IChatService {
   getHistory(chatId: string): Promise<MessageDTO[]>;
 
   /**
+   * 获取所有会话
+   * @returns 会话列表
+   */
+  getChats(): Promise<Chat[]>;
+
+  /**
+   * 获取单个会话
+   * @param chatId - 会话 ID
+   * @returns 会话，不存在返回 null
+   */
+  getChatById(chatId: string): Promise<Chat | null>;
+
+  /**
    * 消息更新事件（流式更新时触发）
    */
   onMessageUpdate?: (event: MessageUpdateEvent) => void;
@@ -123,6 +136,14 @@ export class ChatService implements IChatService {
 
   async getHistory(chatId: string): Promise<MessageDTO[]> {
     return this.chatRepo.getMessages(chatId);
+  }
+
+  async getChats(): Promise<Chat[]> {
+    return this.chatRepo.findAll();
+  }
+
+  async getChatById(chatId: string): Promise<Chat | null> {
+    return this.chatRepo.findById(chatId);
   }
 
   onMessageUpdate?: (event: MessageUpdateEvent) => void;

@@ -2,7 +2,7 @@
  * 通讯录页面
  * @description 显示已导入的作者列表，支持搜索和刷新
  */
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import type { Persona } from '../../core/domain/Persona';
 import type { IPersonaRepository } from '../../core/repositories/IPersonaRepository';
 
@@ -12,9 +12,6 @@ interface ContactsPageProps {
   onBack: () => void;
 }
 
-/**
- * 通讯录页面组件
- */
 export const ContactsPage: React.FC<ContactsPageProps> = ({
   personaRepository,
   onSelectPersona,
@@ -24,9 +21,6 @@ export const ContactsPage: React.FC<ContactsPageProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [isLoading, setIsLoading] = useState(false);
 
-  /**
-   * 加载人格列表
-   */
   const loadPersonas = useCallback(async () => {
     setIsLoading(true);
     try {
@@ -43,16 +37,16 @@ export const ContactsPage: React.FC<ContactsPageProps> = ({
     loadPersonas();
   }, [loadPersonas]);
 
-  /**
-   * 过滤人格列表
-   */
-  const filteredPersonas = personas.filter((persona) =>
-    persona.name.toLowerCase().includes(searchQuery.toLowerCase())
+  const filteredPersonas = useMemo(
+    () =>
+      personas.filter((persona) =>
+        persona.name.toLowerCase().includes(searchQuery.toLowerCase())
+      ),
+    [personas, searchQuery]
   );
 
   return (
     <div className="contacts-page">
-      {/* 顶部栏 */}
       <header className="page-header">
         <button className="back-btn" onClick={onBack}>
           ←
@@ -63,7 +57,6 @@ export const ContactsPage: React.FC<ContactsPageProps> = ({
         </button>
       </header>
 
-      {/* 搜索框 */}
       <div className="search-bar">
         <input
           type="text"
@@ -74,7 +67,6 @@ export const ContactsPage: React.FC<ContactsPageProps> = ({
         />
       </div>
 
-      {/* 人格列表 */}
       <div className="persona-list">
         {filteredPersonas.length === 0 && !isLoading ? (
           <div className="empty-state">

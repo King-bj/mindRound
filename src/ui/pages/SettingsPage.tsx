@@ -17,46 +17,26 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
   platformAdapter,
   onBack,
 }) => {
-  const [config, setConfig] = useState<AppConfig | null>(null);
-  const [formData, setFormData] = useState({
-    apiBaseUrl: '',
-    apiKey: '',
-    model: '',
-    dataDir: '',
-  });
+  const [formData, setFormData] = useState<AppConfig | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
 
-  /**
-   * 加载配置
-   */
   useEffect(() => {
     const load = async () => {
       const cfg = await configRepository.get();
-      setConfig(cfg);
-      setFormData({
-        apiBaseUrl: cfg.apiBaseUrl,
-        apiKey: cfg.apiKey,
-        model: cfg.model,
-        dataDir: cfg.dataDir,
-      });
+      setFormData(cfg);
     };
     load();
   }, [configRepository]);
 
-  /**
-   * 打开数据目录
-   */
   const handleOpenDataDir = async () => {
-    if (formData.dataDir) {
+    if (formData?.dataDir) {
       await platformAdapter.openFolder(formData.dataDir);
     }
   };
 
-  /**
-   * 保存配置
-   */
   const handleSave = async () => {
+    if (!formData) return;
     setIsSaving(true);
     setSaveMessage(null);
     try {
@@ -70,11 +50,12 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
     }
   };
 
-  const handleChange = (field: keyof typeof formData, value: string) => {
-    setFormData((prev) => ({ ...prev, [field]: value }));
+  const handleChange = (field: keyof AppConfig, value: string) => {
+    if (!formData) return;
+    setFormData((prev) => (prev ? { ...prev, [field]: value } : null));
   };
 
-  if (!config) {
+  if (!formData) {
     return (
       <div className="settings-page">
         <div className="settings-loading">加载中...</div>
@@ -84,16 +65,14 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
 
   return (
     <div className="settings-page">
-      {/* 顶部栏 */}
       <header className="page-header">
         <button className="back-btn" onClick={onBack}>
           ←
         </button>
         <h1 className="page-title">设置</h1>
-        <div style={{ width: '40px' }} />
+        <div className="header-spacer" />
       </header>
 
-      {/* 设置表单 */}
       <div className="settings-form">
         <section className="settings-section">
           <h2 className="section-title">API 配置</h2>

@@ -67,8 +67,8 @@ export function createChatStore(chatService: IChatService) {
     loadChats: async () => {
       set({ isLoading: true, error: null });
       try {
-        // 通过 chatService 获取会话列表（需要添加方法或通过 repo 直接访问）
-        set({ isLoading: false });
+        const chats = await chatService.getChats();
+        set({ chats, isLoading: false });
       } catch (err) {
         set({ error: (err as Error).message, isLoading: false });
       }

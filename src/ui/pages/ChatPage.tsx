@@ -36,47 +36,47 @@ export const ChatPage: React.FC<ChatPageProps> = ({
   const [error, setError] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  /**
-   * 加载聊天数据和历史消息
-   */
   useEffect(() => {
+    let cancelled = false;
     const loadChat = async () => {
       setIsLoading(true);
       try {
-        const history = await chatService.getHistory(chatId);
-        setMessages(history);
+        const [history, chatData, personas] = await Promise.all([
+          chatService.getHistory(chatId),
+          chatService.getChatById(chatId),
+          personaRepository.scan(),
+        ]);
+        if (cancelled) return;
 
-        // 获取会话元数据
-        const chatData = await (chatService as unknown as { chatRepo: { findById: (id: string) => Promise<Chat | null> } }).chatRepo.findById(chatId);
+        setMessages(history);
         setChat(chatData);
 
-        // 加载人格信息
-        const personas = await personaRepository.scan();
         const map: Record<string, PersonaInfo> = {};
         personas.forEach((p) => {
           map[p.id] = { id: p.id, name: p.name, avatar: p.avatar };
         });
         setPersonaMap(map);
       } catch (err) {
-        setError((err as Error).message);
+        if (!cancelled) {
+          setError((err as Error).message);
+        }
       } finally {
-        setIsLoading(false);
+        if (!cancelled) {
+          setIsLoading(false);
+        }
       }
     };
 
     loadChat();
+    return () => {
+      cancelled = true;
+    };
   }, [chatId, chatService, personaRepository]);
 
-  /**
-   * 滚动到底部
-   */
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  /**
-   * 发送消息
-   */
   const handleSend = async (content: string) => {
     if (!content.trim() || isSending) return;
 
@@ -85,7 +85,6 @@ export const ChatPage: React.FC<ChatPageProps> = ({
 
     try {
       await chatService.sendMessage(chatId, content);
-      // 重新获取历史
       const history = await chatService.getHistory(chatId);
       setMessages(history);
     } catch (err) {
@@ -95,9 +94,6 @@ export const ChatPage: React.FC<ChatPageProps> = ({
     }
   };
 
-  /**
-   * 获取显示标题
-   */
   const getTitle = () => {
     if (!chat) return '加载中...';
     if (chat.type === 'group') return chat.title;
@@ -114,7 +110,6 @@ export const ChatPage: React.FC<ChatPageProps> = ({
 
   return (
     <div className="chat-page">
-      {/* 顶部栏 */}
       <header className="page-header">
         <button className="back-btn" onClick={onBack}>
           ←
@@ -123,7 +118,6 @@ export const ChatPage: React.FC<ChatPageProps> = ({
         <button className="menu-btn">⋯</button>
       </header>
 
-      {/* 错误提示 */}
       {error && (
         <div className="chat-error">
           <span>{error}</span>
@@ -131,7 +125,6 @@ export const ChatPage: React.FC<ChatPageProps> = ({
         </div>
       )}
 
-      {/* 消息列表 */}
       <div className="message-list">
         {messages.map((msg, index) => {
           const persona = msg.personaId ? personaMap[msg.personaId] : undefined;
@@ -154,7 +147,6 @@ export const ChatPage: React.FC<ChatPageProps> = ({
         <div ref={messagesEndRef} />
       </div>
 
-      {/* 输入框 */}
       <div className="chat-input-area">
         <ChatInput onSend={handleSend} disabled={isSending} />
       </div>
