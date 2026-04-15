@@ -1,0 +1,133 @@
+import { describe, it, expect } from 'vitest';
+import {
+  parseSkillFrontmatter,
+  createPersonaFromSkill,
+} from './Persona';
+
+describe('Persona', () => {
+  describe('parseSkillFrontmatter', () => {
+    it('should parse valid frontmatter with name and description', () => {
+      const content = `---
+name: 乔布斯
+description: 苹果联合创始人
+---
+You are a product designer...`;
+
+      const metadata = parseSkillFrontmatter(content);
+
+      expect(metadata.name).toBe('乔布斯');
+      expect(metadata.description).toBe('苹果联合创始人');
+    });
+
+    it('should parse frontmatter with tags array', () => {
+      const content = `---
+name: 马斯克
+description: 特斯拉CEO
+tags: [创新, 科技, 太空]
+---
+You are an entrepreneur...`;
+
+      const metadata = parseSkillFrontmatter(content);
+
+      expect(metadata.name).toBe('马斯克');
+      expect(metadata.tags).toEqual(['创新', '科技', '太空']);
+    });
+
+    it('should parse frontmatter with comma-separated tags', () => {
+      const content = `---
+name: 测试
+description: Test
+tags: tag1, tag2, tag3
+---
+Content here`;
+
+      const metadata = parseSkillFrontmatter(content);
+
+      expect(metadata.tags).toEqual(['tag1', 'tag2', 'tag3']);
+    });
+
+    it('should return empty values when no frontmatter', () => {
+      const content = `No frontmatter here
+Just plain content`;
+
+      const metadata = parseSkillFrontmatter(content);
+
+      expect(metadata.name).toBe('');
+      expect(metadata.description).toBe('');
+      expect(metadata.tags).toEqual([]);
+    });
+
+    it('should handle partial frontmatter', () => {
+      const content = `---
+name: 仅名称
+---
+Content without description`;
+
+      const metadata = parseSkillFrontmatter(content);
+
+      expect(metadata.name).toBe('仅名称');
+      expect(metadata.description).toBe('');
+    });
+
+    it('should handle empty frontmatter', () => {
+      const content = `---
+---
+Content after empty frontmatter`;
+
+      const metadata = parseSkillFrontmatter(content);
+
+      expect(metadata.name).toBe('');
+      expect(metadata.description).toBe('');
+    });
+  });
+
+  describe('createPersonaFromSkill', () => {
+    const skillContent = `---
+name: 乔布斯
+description: 苹果联合创始人
+tags: [设计, 创新]
+---
+
+You are Steve Jobs...`;
+
+    it('should create persona with parsed metadata', () => {
+      const persona = createPersonaFromSkill('steve-jobs', skillContent, null);
+
+      expect(persona.id).toBe('steve-jobs');
+      expect(persona.name).toBe('乔布斯');
+      expect(persona.description).toBe('苹果联合创始人');
+      expect(persona.tags).toEqual(['设计', '创新']);
+      expect(persona.avatarPath).toBeNull();
+    });
+
+    it('should use id as fallback name when not in frontmatter', () => {
+      const contentWithoutName = `---
+description: No name here
+---
+Content`;
+
+      const persona = createPersonaFromSkill('my-persona-id', contentWithoutName, null);
+
+      expect(persona.name).toBe('my-persona-id');
+    });
+
+    it('should set avatarPath when provided', () => {
+      const avatarPath = '/path/to/avatar.png';
+      const persona = createPersonaFromSkill('test', skillContent, avatarPath);
+
+      expect(persona.avatarPath).toBe(avatarPath);
+    });
+
+    it('should handle empty tags when not provided', () => {
+      const contentNoTags = `---
+name: Test
+description: Test desc
+---
+Content`;
+
+      const persona = createPersonaFromSkill('test', contentNoTags, null);
+
+      expect(persona.tags).toEqual([]);
+    });
+  });
+});
