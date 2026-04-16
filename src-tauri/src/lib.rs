@@ -1,8 +1,9 @@
 mod commands;
 
 use commands::{
-    add_message, create_chat, get_chat, get_config, get_data_dir_command, get_memory,
-    get_messages, get_persona_skill, open_folder, scan_personas, update_config, update_memory,
+    add_message, create_chat, create_dir, delete_file, file_exists, get_chat, get_config,
+    get_data_dir_command, get_memory, get_messages, get_persona_skill, list_dir, open_folder,
+    read_file, scan_personas, update_config, update_memory, write_file,
 };
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -35,6 +36,12 @@ pub fn run() {
             get_data_dir_command,
             // Platform commands
             open_folder,
+            read_file,
+            write_file,
+            file_exists,
+            create_dir,
+            delete_file,
+            list_dir,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

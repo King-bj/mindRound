@@ -47,13 +47,6 @@ type ChatStore = ChatState & ChatActions;
  * @returns Zustand store
  */
 export function createChatStore(chatService: IChatService) {
-  // 设置消息更新回调
-  chatService.onMessageUpdate = (event) => {
-    getState().handleMessageUpdate(event);
-  };
-
-  const getState = () => store.getState() as ChatStore;
-
   const store = create<ChatStore>((set, get) => ({
     // State
     chats: [],
@@ -149,6 +142,11 @@ export function createChatStore(chatService: IChatService) {
 
     clearError: () => set({ error: null }),
   }));
+
+  // 设置消息更新回调（必须在 store 创建之后）
+  chatService.onMessageUpdate = (event) => {
+    store.getState().handleMessageUpdate(event);
+  };
 
   return store;
 }

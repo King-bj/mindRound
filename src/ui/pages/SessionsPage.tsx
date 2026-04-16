@@ -3,10 +3,11 @@
  * @description 显示所有会话，包含单聊和群聊
  */
 import React, { useState, useEffect, useCallback } from 'react';
+import { Users, EmptyChatsIllustration } from '../components/Icons';
+import { formatRelativeTime } from '../../core/utils/time';
 import type { Chat } from '../../core/domain/Chat';
 import type { IChatService } from '../../core/services/ChatService';
 import type { IPersonaRepository } from '../../core/repositories/IPersonaRepository';
-import { formatRelativeTime } from '../../core/utils/time';
 
 interface SessionsPageProps {
   chatService: IChatService;
@@ -53,25 +54,29 @@ export const SessionsPage: React.FC<SessionsPageProps> = ({
   }, [loadChats]);
 
   return (
-    <div className="sessions-page">
-      <header className="page-header">
-        <button className="contacts-btn" onClick={onContacts}>
-          通讯录
-        </button>
-        <h1 className="page-title">会话</h1>
-        <button className="create-group-btn" onClick={onCreateGroup}>
-          +
-        </button>
-      </header>
+    <div className="sessions-page-inner">
+      <div className="wechat-search-bar" role="search">
+        <input
+          type="search"
+          placeholder="搜索"
+          className="wechat-search-input"
+          aria-label="搜索会话"
+        />
+      </div>
 
-      <div className="chat-list">
+      <div className="chat-list" role="list" aria-label="会话列表">
         {chats.length === 0 && !isLoading ? (
-          <div className="empty-state">
-            <p>暂无会话</p>
-            <p className="empty-hint">从通讯录选择作者开始聊天</p>
+          <div className="wechat-empty" role="status">
+            <div className="wechat-empty-icon">
+              <EmptyChatsIllustration />
+            </div>
+            <p className="wechat-empty-text">暂无会话</p>
+            <p className="wechat-empty-hint">
+              从通讯录选择作者开始聊天
+            </p>
           </div>
         ) : (
-          chats.map((chat) => {
+          chats.map((chat, index) => {
             const isGroup = chat.type === 'group';
             const displayName = isGroup
               ? chat.title
@@ -80,29 +85,30 @@ export const SessionsPage: React.FC<SessionsPageProps> = ({
             return (
               <button
                 key={chat.id}
-                className="chat-item"
+                className="wechat-list-item"
                 onClick={() => onSelectChat(chat.id)}
+                role="listitem"
+                style={{ animationDelay: `${index * 50}ms` }}
+                aria-label={`${displayName}${isGroup ? `，${chat.personaIds.length}人讨论组` : ''}`}
               >
-                <div className="chat-avatar">
+                <div className="wechat-avatar" aria-hidden="true">
                   {isGroup ? (
-                    <span className="group-icon">👥</span>
+                    <Users size={20} strokeWidth={1.75} />
                   ) : (
-                    <span className="avatar-placeholder">
-                      {displayName[0] || '?'}
-                    </span>
+                    <span>{displayName[0] || '?'}</span>
                   )}
                 </div>
-                <div className="chat-info">
-                  <div className="chat-header">
-                    <span className="chat-name">{displayName}</span>
-                    <span className="chat-time">{formatRelativeTime(chat.updatedAt)}</span>
-                  </div>
-                  <span className="chat-preview">
+                <div className="wechat-list-info">
+                  <span className="wechat-list-name">{displayName}</span>
+                  <span className="wechat-list-desc">
                     {isGroup
                       ? `${chat.personaIds.length}人讨论`
                       : '点击开始对话'}
                   </span>
                 </div>
+                <span className="wechat-list-time" aria-label={`最后活跃: ${formatRelativeTime(chat.updatedAt)}`}>
+                  {formatRelativeTime(chat.updatedAt)}
+                </span>
               </button>
             );
           })

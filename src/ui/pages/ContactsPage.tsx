@@ -3,6 +3,7 @@
  * @description 显示已导入的作者列表，支持搜索和刷新
  */
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { User, EmptyContactsIllustration } from '../components/Icons';
 import type { Persona } from '../../core/domain/Persona';
 import type { IPersonaRepository } from '../../core/repositories/IPersonaRepository';
 
@@ -46,53 +47,52 @@ export const ContactsPage: React.FC<ContactsPageProps> = ({
   );
 
   return (
-    <div className="contacts-page">
-      <header className="page-header">
-        <button className="back-btn" onClick={onBack}>
-          ←
-        </button>
-        <h1 className="page-title">通讯录</h1>
-        <button className="refresh-btn" onClick={loadPersonas} disabled={isLoading}>
-          {isLoading ? '...' : '↻'}
-        </button>
-      </header>
-
-      <div className="search-bar">
+    <div className="contacts-page-inner">
+      <div className="wechat-search-bar" role="search">
         <input
-          type="text"
-          placeholder="搜索作者"
+          type="search"
+          placeholder="搜索"
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
-          className="search-input"
+          className="wechat-search-input"
+          aria-label="搜索作者"
         />
       </div>
 
-      <div className="persona-list">
+      <div className="persona-list" role="list" aria-label="作者列表">
         {filteredPersonas.length === 0 && !isLoading ? (
-          <div className="empty-state">
-            <p>暂无作者</p>
-            <p className="empty-hint">
-              请将包含 SKILL.md 的文件夹复制到数据目录的 personae/
+          <div className="wechat-empty" role="status">
+            <div className="wechat-empty-icon">
+              <EmptyContactsIllustration />
+            </div>
+            <p className="wechat-empty-text">暂无作者</p>
+            <p className="wechat-empty-hint">
+              点击右上角 + 添加内置人物
             </p>
           </div>
         ) : (
-          filteredPersonas.map((persona) => (
+          filteredPersonas.map((persona, index) => (
             <button
               key={persona.id}
-              className="persona-item"
+              className="wechat-list-item"
               onClick={() => onSelectPersona(persona.id)}
+              role="listitem"
+              style={{ animationDelay: `${index * 50}ms` }}
+              aria-label={`与 ${persona.name} 开始对话`}
             >
-              <div className="persona-avatar">
+              <div className="wechat-avatar" aria-hidden="true">
                 {persona.avatar ? (
-                  <img src={persona.avatar} alt={persona.name} />
+                  <img src={persona.avatar} alt="" />
                 ) : (
-                  <span className="avatar-placeholder">{persona.name[0]}</span>
+                  <User size={20} strokeWidth={1.75} />
                 )}
               </div>
-              <div className="persona-info">
-                <span className="persona-name">{persona.name}</span>
+              <div className="wechat-list-info">
+                <span className="wechat-list-name">{persona.name}</span>
                 {persona.description && (
-                  <span className="persona-desc">{persona.description}</span>
+                  <span className="wechat-list-desc">
+                    {persona.description.substring(0, 50)}
+                  </span>
                 )}
               </div>
             </button>

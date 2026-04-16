@@ -5,6 +5,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { MessageBubble } from '../components/MessageBubble';
 import { ChatInput } from '../components/ChatInput';
+import { ArrowLeft, MoreHorizontal } from '../components/Icons';
 import type { Chat, MessageDTO } from '../../core/domain/Chat';
 import type { IChatService } from '../../core/services/ChatService';
 import type { IPersonaRepository } from '../../core/repositories/IPersonaRepository';
@@ -103,29 +104,42 @@ export const ChatPage: React.FC<ChatPageProps> = ({
   if (isLoading) {
     return (
       <div className="chat-page">
-        <div className="chat-loading">加载中...</div>
+        <div className="chat-loading" role="status" aria-live="polite">加载中...</div>
       </div>
     );
   }
 
   return (
     <div className="chat-page">
-      <header className="page-header">
-        <button className="back-btn" onClick={onBack}>
-          ←
+      <header className="wechat-header" role="banner">
+        <button
+          className="wechat-header-btn"
+          onClick={onBack}
+          aria-label="返回"
+        >
+          <ArrowLeft size={20} strokeWidth={2} />
         </button>
-        <h1 className="page-title">{getTitle()}</h1>
-        <button className="menu-btn">⋯</button>
+        <h1 className="wechat-header-title">{getTitle()}</h1>
+        <button className="wechat-header-btn" aria-label="更多选项">
+          <MoreHorizontal size={20} strokeWidth={2} />
+        </button>
       </header>
 
       {error && (
-        <div className="chat-error">
+        <div className="chat-error" role="alert">
           <span>{error}</span>
-          <button onClick={() => setError(null)}>×</button>
+          <button onClick={() => setError(null)} aria-label="关闭错误提示">
+            ×
+          </button>
         </div>
       )}
 
-      <div className="message-list">
+      <div
+        className="message-list"
+        role="log"
+        aria-label="聊天消息"
+        aria-live="polite"
+      >
         {messages.map((msg, index) => {
           const persona = msg.personaId ? personaMap[msg.personaId] : undefined;
           return (
@@ -140,7 +154,7 @@ export const ChatPage: React.FC<ChatPageProps> = ({
           );
         })}
         {isSending && (
-          <div className="typing-indicator">
+          <div className="typing-indicator" role="status" aria-live="polite">
             <span>正在输入...</span>
           </div>
         )}

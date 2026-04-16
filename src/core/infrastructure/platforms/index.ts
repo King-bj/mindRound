@@ -3,3 +3,4 @@
  */
 export * from './IPlatformAdapter';
 export * from './MockAdapter';
+export { createPlatformAdapter } from './TauriAdapter';

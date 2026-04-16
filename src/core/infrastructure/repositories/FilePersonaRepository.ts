@@ -10,13 +10,14 @@ import type { IPlatformAdapter } from '../platforms/IPlatformAdapter';
 export class FilePersonaRepository implements IPersonaRepository {
   constructor(private platform: IPlatformAdapter) {}
 
-  private get personasDir(): string {
-    return `${this.platform.getDataDir()}/personae`;
+  private async getPersonasDir(): Promise<string> {
+    return `${await this.platform.getDataDir()}/personae`;
   }
 
   async scan(): Promise<Persona[]> {
     try {
-      const entries = await this.platform.listDir(this.personasDir);
+      const personasDir = await this.getPersonasDir();
+      const entries = await this.platform.listDir(personasDir);
       const personas: Persona[] = [];
 
       for (const entry of entries) {
@@ -27,18 +28,19 @@ export class FilePersonaRepository implements IPersonaRepository {
       }
 
       return personas;
-    } catch {
+    } catch (err) {
+      console.error('[FilePersonaRepository] scan() error:', err);
       return [];
     }
   }
 
   async findById(id: string): Promise<Persona | null> {
     try {
-      const skillPath = `${this.personasDir}/${id}/SKILL.md`;
+      const personasDir = await this.getPersonasDir();
+      const skillPath = `${personasDir}/${id}/SKILL.md`;
       const skillContent = await this.platform.readFile(skillPath);
 
-      // 检查头像是否存在
-      const avatarPath = `${this.personasDir}/${id}/avatar.png`;
+      const avatarPath = `${personasDir}/${id}/avatar.png`;
       let avatar: string | null = null;
       if (await this.platform.exists(avatarPath)) {
         avatar = avatarPath;
@@ -55,7 +57,8 @@ export class FilePersonaRepository implements IPersonaRepository {
   }
 
   async getSkillContent(personaId: string): Promise<string> {
-    const skillPath = `${this.personasDir}/${personaId}/SKILL.md`;
+    const personasDir = await this.getPersonasDir();
+    const skillPath = `${personasDir}/${personaId}/SKILL.md`;
     return this.platform.readFile(skillPath);
   }
 

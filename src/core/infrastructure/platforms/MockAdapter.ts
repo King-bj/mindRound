@@ -4,6 +4,19 @@
  */
 import type { IPlatformAdapter, FilePickerOptions } from './IPlatformAdapter';
 
+// 内置 Persona SKILL.md 源文件
+import laoziSkill from '../../personae/laozi-skill/SKILL.md?raw';
+import elonMuskSkill from '../../personae/elon-musk-skill/SKILL.md?raw';
+import feynmanSkill from '../../personae/feynman-skill/SKILL.md?raw';
+import steveJobsSkill from '../../personae/steve-jobs-skill/SKILL.md?raw';
+import trumpSkill from '../../personae/trump-skill/SKILL.md?raw';
+import zhangYimingSkill from '../../personae/zhang-yiming-skill/SKILL.md?raw';
+import zhangXuefengSkill from '../../personae/zhangxuefeng-skill/SKILL.md?raw';
+import luoYonghaoSkill from '../../personae/luoyonghao-skill/SKILL.md?raw';
+import jiajingSkill from '../../personae/jiajing-perspective-skill/SKILL.md?raw';
+import spongebobSkill from '../../personae/spongebob-skill/SKILL.md?raw';
+import paulGrahamSkill from '../../personae/paul-graham-skill/SKILL.md?raw';
+
 /**
  * 内存文件系统模拟
  */
@@ -12,6 +25,10 @@ class InMemoryFileSystem {
   private dirs: Set<string> = new Set(['/']);
 
   async writeFile(path: string, content: string): Promise<void> {
+    this.writeFileSync(path, content);
+  }
+
+  writeFileSync(path: string, content: string): void {
     this.files.set(path, content);
     // 确保父目录存在
     const parts = path.split('/').filter(Boolean);
@@ -36,6 +53,10 @@ class InMemoryFileSystem {
   }
 
   async mkdir(path: string): Promise<void> {
+    this.mkdirSync(path);
+  }
+
+  mkdirSync(path: string): void {
     this.dirs.add(path);
     // 创建父目录
     const parts = path.split('/').filter(Boolean);
@@ -84,6 +105,10 @@ class InMemoryFileSystem {
     this.dirs.clear();
     this.dirs.add('/');
   }
+
+  listFiles(): string[] {
+    return [...this.files.keys()];
+  }
 }
 
 export class MockAdapter implements IPlatformAdapter {
@@ -92,6 +117,36 @@ export class MockAdapter implements IPlatformAdapter {
 
   constructor() {
     this.fs = new InMemoryFileSystem();
+    this.preloadBuiltInPersonasSync();
+  }
+
+  /**
+   * 预加载内置 Persona 到内存文件系统（同步）
+   * @description 从 src/core/personae/ 加载 SKILL.md 到 /mock-data/personae/
+   */
+  private preloadBuiltInPersonasSync(): void {
+    const builtInPersonas: Record<string, string> = {
+      'laozi-skill': laoziSkill,
+      'elon-musk-skill': elonMuskSkill,
+      'feynman-skill': feynmanSkill,
+      'steve-jobs-skill': steveJobsSkill,
+      'trump-skill': trumpSkill,
+      'zhang-yiming-skill': zhangYimingSkill,
+      'zhangxuefeng-skill': zhangXuefengSkill,
+      'luoyonghao-skill': luoYonghaoSkill,
+      'jiajing-perspective-skill': jiajingSkill,
+      'spongebob-skill': spongebobSkill,
+      'paul-graham-skill': paulGrahamSkill,
+    };
+
+    // 同步写入所有文件和目录
+    this.fs.mkdirSync(`${this.dataDir}/personae`);
+
+    for (const [id, content] of Object.entries(builtInPersonas)) {
+      const personaDir = `${this.dataDir}/personae/${id}`;
+      this.fs.mkdirSync(personaDir);
+      this.fs.writeFileSync(`${personaDir}/SKILL.md`, content);
+    }
   }
 
   async getDataDir(): Promise<string> {

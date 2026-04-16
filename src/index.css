@@ -1,24 +1,105 @@
 @import "tailwindcss";
 
-:root {
+/* ===== 平台检测与样式变量 ===== */
+/*
+ * 支持两种平台模式:
+ * - .platform-desktop: 桌面客户端样式 (macOS/Windows 窗口风格)
+ * - .platform-android: Android 移动端样式 (Material Design)
+ *
+ * 通过 App.tsx 中的 platformAdapter 检测自动切换，
+ * 或手动在 body 上添加 class 来强制指定样式
+ */
+
+/* ===== 桌面客户端样式变量 ===== */
+.platform-desktop {
+  --window-bg: #ffffff;
+  --window-border: rgba(0, 0, 0, 0.12);
+  --window-shadow: 0 8px 32px rgba(0, 0, 0, 0.15);
+  --title-bar-bg: #f5f5f7;
+  --title-bar-border: #e0e0e0;
+  --content-bg: #ffffff;
+  --list-item-bg: #ffffff;
+  --list-item-hover: #f5f5f5;
+  --list-item-active: #e8e8e8;
+  --list-border: #f0f0f0;
+  --header-bg: #f5f5f7;
+  --header-text: #1d1d1f;
+  --tab-bar-bg: #f8f8f8;
+  --tab-bar-border: #e8e8e8;
+  --tab-inactive: #8e8e93;
+  --tab-active: #007aff;
+  --search-bg: #ffffff;
+  --search-border: #d1d1d6;
+  --avatar-bg: #f0f0f0;
+  --bubble-user: #007aff;
+  --bubble-other: #e9e9eb;
+  --bubble-text: #000000;
+  --bubble-user-text: #ffffff;
+  --font-family: "SF Pro Display", "PingFang SC", "Microsoft YaHei", -apple-system, sans-serif;
+  --font-size-base: 15px;
+  --spacing-unit: 8px;
+  --border-radius: 10px;
+  --border-radius-sm: 6px;
+  --border-radius-lg: 14px;
+  --header-height: 52px;
+  --tab-height: 50px;
+  --safe-area-bottom: 0px;
+}
+
+/* ===== Android 移动端样式变量 ===== */
+.platform-android {
+  --window-bg: #fafafa;
+  --window-border: #dcdcdc;
+  --window-shadow: none;
+  --title-bar-bg: #ffffff;
+  --title-bar-border: #e0e0e0;
+  --content-bg: #f5f5f5;
+  --list-item-bg: #ffffff;
+  --list-item-hover: #f0f0f0;
+  --list-item-active: #e0e0e0;
+  --list-border: #e8e8e8;
+  --header-bg: #ffffff;
+  --header-text: #212121;
+  --tab-bar-bg: #ffffff;
+  --tab-bar-border: #e0e0e0;
+  --tab-inactive: #757575;
+  --tab-active: #04c755;
+  --search-bg: #f0f0f0;
+  --search-border: transparent;
+  --avatar-bg: #e0e0e0;
+  --bubble-user: #04c755;
+  --bubble-other: #ffffff;
+  --bubble-text: #000000;
+  --bubble-user-text: #ffffff;
+  --font-family: "Roboto", "PingFang SC", "Noto Sans SC", sans-serif;
+  --font-size-base: 14px;
+  --spacing-unit: 8px;
+  --border-radius: 18px;
+  --border-radius-sm: 4px;
+  --border-radius-lg: 24px;
+  --header-height: 56px;
+  --tab-height: 56px;
+  --safe-area-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+/* ===== 默认样式（跟随系统） ===== */
+:root,
+body {
   --text: #6b6375;
   --text-h: #08060d;
   --bg: #fff;
   --border: #e5e4e7;
   --code-bg: #f4f3ec;
-  --accent: #aa3bff;
-  --accent-bg: rgba(170, 59, 255, 0.1);
-  --accent-border: rgba(170, 59, 255, 0.5);
+  --accent: #007aff;
+  --accent-bg: rgba(0, 122, 255, 0.1);
+  --accent-border: rgba(0, 122, 255, 0.3);
   --social-bg: rgba(244, 243, 236, 0.5);
-  --shadow:
-    rgba(0, 0, 0, 0.1) 0 10px 15px -3px, rgba(0, 0, 0, 0.05) 0 4px 6px -2px;
+  --shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
 
-  --sans: system-ui, 'Segoe UI', Roboto, sans-serif;
-  --heading: system-ui, 'Segoe UI', Roboto, sans-serif;
-  --mono: ui-monospace, Consolas, monospace;
-
-  font: 18px/145% var(--sans);
-  letter-spacing: 0.18px;
+  font-family: "SF Pro Display", "PingFang SC", "Microsoft YaHei", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-size: 15px;
+  line-height: 1.5;
+  letter-spacing: 0;
   color-scheme: light dark;
   color: var(--text);
   background: var(--bg);
@@ -26,88 +107,98 @@
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-
-  @media (max-width: 1024px) {
-    font-size: 16px;
-  }
 }
 
+/* 深色模式支持 */
 @media (prefers-color-scheme: dark) {
-  :root {
-    --text: #9ca3af;
+  :root,
+  .platform-desktop,
+  .platform-android {
+    --text: #b0b0b5;
     --text-h: #f3f4f6;
-    --bg: #16171d;
-    --border: #2e303a;
-    --code-bg: #1f2028;
-    --accent: #c084fc;
-    --accent-bg: rgba(192, 132, 252, 0.15);
-    --accent-border: rgba(192, 132, 252, 0.5);
-    --social-bg: rgba(47, 48, 58, 0.5);
-    --shadow:
-      rgba(0, 0, 0, 0.4) 0 10px 15px -3px, rgba(0, 0, 0, 0.25) 0 4px 6px -2px;
-  }
+    --bg: #1c1c1e;
+    --border: #38383a;
+    --code-bg: #2c2c2e;
+    --social-bg: rgba(60, 60, 67, 0.6);
+    --shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
 
-  #social .button-icon {
-    filter: invert(1) brightness(2);
+    /* 桌面深色 */
+    --window-bg: #2c2c2e;
+    --title-bar-bg: #1c1c1e;
+    --title-bar-border: #38383a;
+    --content-bg: #000000;
+    --list-item-bg: #2c2c2e;
+    --list-item-hover: #3a3a3c;
+    --list-item-active: #48484a;
+    --list-border: #38383a;
+    --header-bg: #1c1c1e;
+    --header-text: #f3f4f6;
+    --tab-bar-bg: #1c1c1e;
+    --tab-bar-border: #38383a;
+    --tab-inactive: #a0a0a8; /* 提高对比度: #8e8e93 → #a0a0a8 (WCAG AA) */
+    --search-bg: #3a3a3c;
+    --search-border: transparent;
+    --avatar-bg: #48484a;
+    --bubble-user: #0a84ff;
+    --bubble-other: #3a3a3c;
+    --bubble-text: #ffffff;
+    --bubble-user-text: #ffffff;
   }
 }
 
 #root {
-  width: 1126px;
-  max-width: 100%;
+  width: 100%;
+  max-width: 430px; /* Android 典型宽度 */
   margin: 0 auto;
-  text-align: center;
-  border-inline: 1px solid var(--border);
   min-height: 100svh;
   display: flex;
   flex-direction: column;
   box-sizing: border-box;
+  background: var(--content-bg);
+}
+
+/* 桌面模式下居中显示 */
+.platform-desktop #root {
+  max-width: 420px;
+  margin: 40px auto;
+  min-height: calc(100svh - 80px);
+  border-radius: var(--border-radius);
+  box-shadow: var(--window-shadow);
+  border: 1px solid var(--window-border);
+  overflow: hidden;
 }
 
 body {
   margin: 0;
+  padding: 0;
 }
 
-h1,
-h2 {
-  font-family: var(--heading);
-  font-weight: 500;
-  color: var(--text-h);
+h1, h2, h3 {
+  font-family: var(--font-family);
+  font-weight: 600;
+  color: var(--header-text);
+  margin: 0;
 }
 
 h1 {
-  font-size: 56px;
-  letter-spacing: -1.68px;
-  margin: 32px 0;
-  @media (max-width: 1024px) {
-    font-size: 36px;
-    margin: 20px 0;
-  }
+  font-size: 20px;
+  letter-spacing: -0.3px;
 }
+
 h2 {
-  font-size: 24px;
-  line-height: 118%;
-  letter-spacing: -0.24px;
-  margin: 0 0 8px;
-  @media (max-width: 1024px) {
-    font-size: 20px;
-  }
+  font-size: 18px;
+  letter-spacing: -0.2px;
 }
+
 p {
   margin: 0;
 }
 
-code,
-.counter {
-  font-family: var(--mono);
-  display: inline-flex;
-  border-radius: 4px;
-  color: var(--text-h);
+button {
+  font-family: inherit;
 }
 
-code {
-  font-size: 15px;
-  line-height: 135%;
-  padding: 4px 8px;
-  background: var(--code-bg);
+/* Android 状态栏留白 */
+.platform-android {
+  padding-top: env(safe-area-inset-top, 0px);
 }
