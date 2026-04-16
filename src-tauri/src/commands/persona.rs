@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
-use tauri::AppHandle;
+use tauri::{AppHandle, Manager};
 
 /// 编译时嵌入所有内置 persona 的 SKILL.md 文件
 const BUILTIN_PERSONAS: &[(&str, &str)] = &[

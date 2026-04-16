@@ -15,6 +15,8 @@ interface SessionsPageProps {
   onSelectChat: (chatId: string) => void;
   onCreateGroup: () => void;
   onContacts: () => void;
+  /** 桌面分栏时当前选中的会话（高亮列表项） */
+  selectedChatId?: string | null;
 }
 
 export const SessionsPage: React.FC<SessionsPageProps> = ({
@@ -23,6 +25,7 @@ export const SessionsPage: React.FC<SessionsPageProps> = ({
   onSelectChat,
   onCreateGroup,
   onContacts,
+  selectedChatId = null,
 }) => {
   const [chats, setChats] = useState<Chat[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -82,10 +85,11 @@ export const SessionsPage: React.FC<SessionsPageProps> = ({
               ? chat.title
               : personaNames[chat.personaIds[0]] || chat.personaIds[0];
 
+            const timeLabel = formatRelativeTime(chat.updatedAt);
             return (
               <button
                 key={chat.id}
-                className="wechat-list-item"
+                className={`wechat-list-item${selectedChatId === chat.id ? ' active' : ''}`}
                 onClick={() => onSelectChat(chat.id)}
                 role="listitem"
                 style={{ animationDelay: `${index * 50}ms` }}
@@ -106,9 +110,11 @@ export const SessionsPage: React.FC<SessionsPageProps> = ({
                       : '点击开始对话'}
                   </span>
                 </div>
-                <span className="wechat-list-time" aria-label={`最后活跃: ${formatRelativeTime(chat.updatedAt)}`}>
-                  {formatRelativeTime(chat.updatedAt)}
-                </span>
+                {timeLabel ? (
+                  <span className="wechat-list-time" aria-label={`最后活跃: ${timeLabel}`}>
+                    {timeLabel}
+                  </span>
+                ) : null}
               </button>
             );
           })

@@ -1,6 +1,5 @@
 use std::fs;
 use std::path::PathBuf;
-use tauri::AppHandle;
 
 #[tauri::command]
 pub async fn open_folder(path: String) -> Result<(), String> {

@@ -90,7 +90,10 @@ export class ChatService implements IChatService {
 
   async sendMessage(chatId: string, content: string): Promise<void> {
     const userMsg = createUserMessage(content);
-    await this.chatRepo.addMessage(chatId, this.messageToDTO(userMsg));
+    const userDto = this.messageToDTO(userMsg);
+    await this.chatRepo.addMessage(chatId, userDto);
+    /** 立即推送到 UI，否则用户消息只存在仓库中，界面右侧不会出现自己的气泡 */
+    this.onMessageUpdate?.({ chatId, message: userDto, done: false });
 
     const chat = await this.chatRepo.findById(chatId);
     if (!chat) {

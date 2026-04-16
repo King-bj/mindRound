@@ -5,10 +5,13 @@
 import type { IPlatformAdapter, FilePickerOptions } from './IPlatformAdapter';
 import { MockAdapter } from './MockAdapter';
 
-// Tauri 全局类型声明
+// Tauri 全局类型声明（Tauri 2 默认仅注入 __TAURI_INTERNALS__，withGlobalTauri 开启时才有 __TAURI__）
 declare global {
   interface Window {
     __TAURI__?: {
+      invoke: <T>(cmd: string, args?: Record<string, unknown>) => Promise<T>;
+    };
+    __TAURI_INTERNALS__?: {
       invoke: <T>(cmd: string, args?: Record<string, unknown>) => Promise<T>;
     };
   }
@@ -18,7 +21,11 @@ declare global {
  * 检查是否在 Tauri 环境中
  */
 function isTauriEnvironment(): boolean {
-  return typeof window !== 'undefined' && !!(window as Window & { __TAURI__?: unknown }).__TAURI__;
+  if (typeof window === 'undefined') {
+    return false;
+  }
+  const w = window as Window & { __TAURI__?: unknown; __TAURI_INTERNALS__?: unknown };
+  return !!(w.__TAURI__ ?? w.__TAURI_INTERNALS__);
 }
 
 /**
@@ -154,7 +161,10 @@ export class TauriAdapter implements IPlatformAdapter {
     if (!isTauriEnvironment()) {
       throw new Error(`[TauriAdapter] Cannot call "${cmd}" outside Tauri environment`);
     }
-    return await window.__TAURI__!.invoke<T>(cmd, args);
+    if (window.__TAURI__?.invoke) {
+      return await window.__TAURI__.invoke<T>(cmd, args);
+    }
+    return await window.__TAURI_INTERNALS__!.invoke<T>(cmd, args ?? {});
   }
 }
 

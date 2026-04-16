@@ -20,6 +20,8 @@ pub fn run() {
             // 首次运行时初始化内置 persona 数据
             if let Err(e) = init_builtin_personas(app.handle()) {
                 log::error!("Failed to initialize built-in personas: {}", e);
+            } else {
+                log::info!("Built-in personas initialized successfully");
             }
             Ok(())
         })

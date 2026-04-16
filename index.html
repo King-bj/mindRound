@@ -7,6 +7,20 @@
     <title>mindround-temp</title>
   </head>
   <body>
+    <!-- 在 React 挂载前为 Tauri 设置 body 平台类，避免首屏误用 platform-android 的 #root 窄列样式 -->
+    <script>
+      (function () {
+        try {
+          var w = window;
+          if (!w.__TAURI__ && !w.__TAURI_INTERNALS__) return;
+          var ua = (navigator.userAgent || '').toLowerCase();
+          var isAndroidUa = /android/i.test(ua);
+          document.body.classList.add(isAndroidUa ? 'platform-android' : 'platform-desktop');
+        } catch (e) {
+          /* ignore */
+        }
+      })();
+    </script>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

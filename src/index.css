@@ -10,31 +10,32 @@
  * 或手动在 body 上添加 class 来强制指定样式
  */
 
-/* ===== 桌面客户端样式变量 ===== */
+/* ===== 桌面客户端样式变量 - 微信风格 ===== */
 .platform-desktop {
   --window-bg: #ffffff;
   --window-border: rgba(0, 0, 0, 0.12);
   --window-shadow: 0 8px 32px rgba(0, 0, 0, 0.15);
-  --title-bar-bg: #f5f5f7;
-  --title-bar-border: #e0e0e0;
-  --content-bg: #ffffff;
+  --title-bar-bg: #ffffff;
+  --title-bar-border: #e5e5e5;
+  --content-bg: #EDEDED;
   --list-item-bg: #ffffff;
-  --list-item-hover: #f5f5f5;
-  --list-item-active: #e8e8e8;
-  --list-border: #f0f0f0;
-  --header-bg: #f5f5f7;
-  --header-text: #1d1d1f;
-  --tab-bar-bg: #f8f8f8;
-  --tab-bar-border: #e8e8e8;
-  --tab-inactive: #8e8e93;
-  --tab-active: #007aff;
-  --search-bg: #ffffff;
-  --search-border: #d1d1d6;
-  --avatar-bg: #f0f0f0;
-  --bubble-user: #007aff;
-  --bubble-other: #e9e9eb;
-  --bubble-text: #000000;
-  --bubble-user-text: #ffffff;
+  --list-item-hover: #F5F5F5;
+  --list-item-active: #E8E8E8;
+  --list-border: #F5F5F5;
+  --header-bg: #ffffff;
+  --header-text: #191919;
+  --tab-bar-bg: #ffffff;
+  --tab-bar-border: #e5e5e5;
+  --tab-inactive: #999999;
+  --tab-active: #07C160;
+  --tab-active-bg: #E8F8EF;
+  --search-bg: #F5F5F5;
+  --search-border: transparent;
+  --avatar-bg: #F5F5F5;
+  --bubble-user: #95EC69;
+  --bubble-other: #ffffff;
+  --bubble-text: #191919;
+  --bubble-user-text: #191919;
   --font-family: "SF Pro Display", "PingFang SC", "Microsoft YaHei", -apple-system, sans-serif;
   --font-size-base: 15px;
   --spacing-unit: 8px;
@@ -126,7 +127,7 @@ body {
     --window-bg: #2c2c2e;
     --title-bar-bg: #1c1c1e;
     --title-bar-border: #38383a;
-    --content-bg: #000000;
+    --content-bg: #1c1c1e;
     --list-item-bg: #2c2c2e;
     --list-item-hover: #3a3a3c;
     --list-item-active: #48484a;
@@ -135,21 +136,24 @@ body {
     --header-text: #f3f4f6;
     --tab-bar-bg: #1c1c1e;
     --tab-bar-border: #38383a;
-    --tab-inactive: #a0a0a8; /* 提高对比度: #8e8e93 → #a0a0a8 (WCAG AA) */
+    --tab-inactive: #a0a0a8;
+    --tab-active: #07C160;
+    --tab-active-bg: #1a3d2a;
     --search-bg: #3a3a3c;
     --search-border: transparent;
     --avatar-bg: #48484a;
-    --bubble-user: #0a84ff;
+    --bubble-user: #7DC879;
     --bubble-other: #3a3a3c;
     --bubble-text: #ffffff;
-    --bubble-user-text: #ffffff;
+    --bubble-user-text: #191919;
   }
 }
 
+/* 默认铺满视口（桌面 / Tauri）；避免依赖 JS 晚于首屏添加 platform-desktop */
 #root {
   width: 100%;
-  max-width: 430px; /* Android 典型宽度 */
-  margin: 0 auto;
+  max-width: 100%;
+  margin: 0;
   min-height: 100svh;
   display: flex;
   flex-direction: column;
@@ -157,14 +161,14 @@ body {
   background: var(--content-bg);
 }
 
-/* 桌面模式下居中显示 */
-.platform-desktop #root {
-  max-width: 420px;
-  margin: 40px auto;
-  min-height: calc(100svh - 80px);
-  border-radius: var(--border-radius);
-  box-shadow: var(--window-shadow);
-  border: 1px solid var(--window-border);
+/* Android：手机列宽居中 */
+body.platform-android #root {
+  max-width: 430px;
+  margin: 0 auto;
+}
+
+/* 桌面：根节点禁止外层滚动，由内部区域滚动 */
+body.platform-desktop #root {
   overflow: hidden;
 }
 
