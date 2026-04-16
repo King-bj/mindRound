@@ -25,6 +25,27 @@ const DEFAULT_API_BASE_URL = 'https://api.openai.com/v1';
 const DEFAULT_MODEL = 'gpt-4o';
 
 /**
+ * 将保存的配置同步到 HttpApiRepository
+ * @param configRepo - 配置仓储
+ * @param apiRepo - API 仓储
+ */
+async function syncApiConfig(
+  configRepo: FileConfigRepository,
+  apiRepo: HttpApiRepository
+): Promise<void> {
+  try {
+    const config = await configRepo.get();
+    apiRepo.updateConfig(
+      config.apiBaseUrl || DEFAULT_API_BASE_URL,
+      config.apiKey,
+      config.model || DEFAULT_MODEL
+    );
+  } catch {
+    // 配置读取失败时使用默认值
+  }
+}
+
+/**
  * 检测平台类型
  * - Android: 检测移动设备或 Android WebView
  * - Desktop: 其他情况（桌面窗口）
@@ -81,6 +102,11 @@ function App() {
   useEffect(() => {
     chatStore.getState().loadChats();
   }, [chatStore]);
+
+  // 初始化时从配置文件加载 API 设置
+  useEffect(() => {
+    syncApiConfig(configRepo, apiRepo);
+  }, [configRepo, apiRepo]);
 
   const handleTabChange = (tab: TabType) => {
     setActiveTab(tab);
@@ -168,11 +194,6 @@ function App() {
         <div className="page-with-tab-bar">
           <header className="wechat-header">
             <h1 className="wechat-header-title">通讯录</h1>
-            <div className="wechat-header-actions">
-              <button className="wechat-header-btn" aria-label="添加作者">
-                <Plus size={20} strokeWidth={2} />
-              </button>
-            </div>
           </header>
           <div className="page-content">
             <ContactsPage
@@ -194,6 +215,7 @@ function App() {
             <SettingsPage
               configRepository={configRepo}
               platformAdapter={platformAdapter}
+              apiRepository={apiRepo}
               onBack={() => setActiveTab('chats')}
             />
           </div>

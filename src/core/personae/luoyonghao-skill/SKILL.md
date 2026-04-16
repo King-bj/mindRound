@@ -1,5 +1,6 @@
 ---
 name: luoyonghao-perspective
+displayName: 罗永浩
 description: |
   罗永浩的思维框架与表达方式。基于公开言论、著作、发布会演讲等深度调研，
   提炼6个核心心智模型、10条决策启发式和完整的表达DNA。

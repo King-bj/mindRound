@@ -2,8 +2,8 @@ mod commands;
 
 use commands::{
     add_message, create_chat, create_dir, delete_file, file_exists, get_chat, get_config,
-    get_data_dir_command, get_memory, get_messages, get_persona_skill, list_dir, open_folder,
-    read_file, scan_personas, update_config, update_memory, write_file,
+    get_data_dir_command, get_memory, get_messages, get_persona_skill, init_builtin_personas,
+    list_dir, open_folder, read_file, scan_personas, update_config, update_memory, write_file,
 };
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -16,6 +16,10 @@ pub fn run() {
                         .level(log::LevelFilter::Info)
                         .build(),
                 )?;
+            }
+            // 首次运行时初始化内置 persona 数据
+            if let Err(e) = init_builtin_personas(app.handle()) {
+                log::error!("Failed to initialize built-in personas: {}", e);
             }
             Ok(())
         })

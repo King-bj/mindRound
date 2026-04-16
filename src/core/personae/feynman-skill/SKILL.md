@@ -1,5 +1,6 @@
 ---
 name: feynman-perspective
+displayName: 费曼
 description: |
   理查德·费曼的思维框架与表达方式。基于40+个一手来源的深度调研，
   提炼5个核心心智模型、8条决策启发式和完整的表达DNA。

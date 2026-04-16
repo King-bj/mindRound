@@ -4,18 +4,12 @@
  */
 import type { IPlatformAdapter, FilePickerOptions } from './IPlatformAdapter';
 
-// 内置 Persona SKILL.md 源文件
-import laoziSkill from '../../personae/laozi-skill/SKILL.md?raw';
-import elonMuskSkill from '../../personae/elon-musk-skill/SKILL.md?raw';
-import feynmanSkill from '../../personae/feynman-skill/SKILL.md?raw';
-import steveJobsSkill from '../../personae/steve-jobs-skill/SKILL.md?raw';
-import trumpSkill from '../../personae/trump-skill/SKILL.md?raw';
-import zhangYimingSkill from '../../personae/zhang-yiming-skill/SKILL.md?raw';
-import zhangXuefengSkill from '../../personae/zhangxuefeng-skill/SKILL.md?raw';
-import luoYonghaoSkill from '../../personae/luoyonghao-skill/SKILL.md?raw';
-import jiajingSkill from '../../personae/jiajing-perspective-skill/SKILL.md?raw';
-import spongebobSkill from '../../personae/spongebob-skill/SKILL.md?raw';
-import paulGrahamSkill from '../../personae/paul-graham-skill/SKILL.md?raw';
+// 使用 Vite import.meta.glob 动态导入所有 persona SKILL.md 文件
+const personaModules = import.meta.glob('../../personae/*/SKILL.md', {
+  eager: true,
+  query: '?raw',
+  import: 'default',
+}) as Record<string, string>;
 
 /**
  * 内存文件系统模拟
@@ -122,30 +116,23 @@ export class MockAdapter implements IPlatformAdapter {
 
   /**
    * 预加载内置 Persona 到内存文件系统（同步）
-   * @description 从 src/core/personae/ 加载 SKILL.md 到 /mock-data/personae/
+   * @description 使用 import.meta.glob 动态扫描 personae/ 目录
    */
   private preloadBuiltInPersonasSync(): void {
-    const builtInPersonas: Record<string, string> = {
-      'laozi-skill': laoziSkill,
-      'elon-musk-skill': elonMuskSkill,
-      'feynman-skill': feynmanSkill,
-      'steve-jobs-skill': steveJobsSkill,
-      'trump-skill': trumpSkill,
-      'zhang-yiming-skill': zhangYimingSkill,
-      'zhangxuefeng-skill': zhangXuefengSkill,
-      'luoyonghao-skill': luoYonghaoSkill,
-      'jiajing-perspective-skill': jiajingSkill,
-      'spongebob-skill': spongebobSkill,
-      'paul-graham-skill': paulGrahamSkill,
-    };
+    // 从 glob 路径中提取 persona ID 并写入文件系统
+    // 路径格式: ../../personae/{id}/SKILL.md
+    const personaPattern = /personae\/([^/]+)\/SKILL\.md$/;
 
-    // 同步写入所有文件和目录
     this.fs.mkdirSync(`${this.dataDir}/personae`);
 
-    for (const [id, content] of Object.entries(builtInPersonas)) {
-      const personaDir = `${this.dataDir}/personae/${id}`;
-      this.fs.mkdirSync(personaDir);
-      this.fs.writeFileSync(`${personaDir}/SKILL.md`, content);
+    for (const [path, content] of Object.entries(personaModules)) {
+      const match = path.match(personaPattern);
+      if (match) {
+        const id = match[1];
+        const personaDir = `${this.dataDir}/personae/${id}`;
+        this.fs.mkdirSync(personaDir);
+        this.fs.writeFileSync(`${personaDir}/SKILL.md`, content);
+      }
     }
   }
 

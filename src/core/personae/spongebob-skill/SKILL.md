@@ -1,5 +1,6 @@
 ---
 name: spongebob-perspective
+displayName: 海绵宝宝
 description: |
   海绵宝宝的思维框架与表达方式。基于尼克儿童频道动画系列（1999年至今）超过300集内容的深度调研，
   提炼7个核心心智模型、10条决策启发式和完整的表达DNA。

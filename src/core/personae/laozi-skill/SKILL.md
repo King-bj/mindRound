@@ -1,5 +1,6 @@
 ---
 name: laozi-perspective
+displayName: 老子
 description: |
   老子的思维框架与表达方式。基于《道德经》全文(81章5000字)及《史记》等历史文献的深度调研，
   提炼7个核心心智模型、10条决策启发式和完整的表达DNA。

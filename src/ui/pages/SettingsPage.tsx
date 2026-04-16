@@ -5,16 +5,19 @@
 import React, { useState, useEffect } from 'react';
 import type { IConfigRepository, AppConfig } from '../../core/repositories/IConfigRepository';
 import type { IPlatformAdapter } from '../../core/infrastructure/platforms/IPlatformAdapter';
+import type { HttpApiRepository } from '../../core/infrastructure/repositories/HttpApiRepository';
 
 interface SettingsPageProps {
   configRepository: IConfigRepository;
   platformAdapter: IPlatformAdapter;
+  apiRepository: HttpApiRepository;
   onBack: () => void;
 }
 
 export const SettingsPage: React.FC<SettingsPageProps> = ({
   configRepository,
   platformAdapter,
+  apiRepository,
   onBack,
 }) => {
   const [formData, setFormData] = useState<AppConfig | null>(null);
@@ -41,6 +44,12 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
     setSaveMessage(null);
     try {
       await configRepository.update(formData);
+      // 同步配置到 API 仓储
+      apiRepository.updateConfig(
+        formData.apiBaseUrl || 'https://api.openai.com/v1',
+        formData.apiKey,
+        formData.model || 'gpt-4o'
+      );
       setSaveMessage('保存成功');
       setTimeout(() => setSaveMessage(null), 2000);
     } catch (err) {

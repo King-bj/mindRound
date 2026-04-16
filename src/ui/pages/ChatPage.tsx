@@ -69,8 +69,35 @@ export const ChatPage: React.FC<ChatPageProps> = ({
     };
 
     loadChat();
+
+    // 订阅流式消息更新
+    chatService.onMessageUpdate = (event) => {
+      if (cancelled || event.chatId !== chatId) return;
+
+      setMessages((prev) => {
+        const existingIndex = prev.findIndex(
+          (m) => m.timestamp === event.message.timestamp && m.role === event.message.role
+        );
+
+        if (existingIndex >= 0) {
+          // 更新现有消息（流式追加）
+          const updated = [...prev];
+          updated[existingIndex] = event.message;
+          return updated;
+        } else {
+          // 新消息
+          return [...prev, event.message];
+        }
+      });
+
+      if (event.done) {
+        setIsSending(false);
+      }
+    };
+
     return () => {
       cancelled = true;
+      chatService.onMessageUpdate = undefined;
     };
   }, [chatId, chatService, personaRepository]);
 
@@ -86,13 +113,11 @@ export const ChatPage: React.FC<ChatPageProps> = ({
 
     try {
       await chatService.sendMessage(chatId, content);
-      const history = await chatService.getHistory(chatId);
-      setMessages(history);
     } catch (err) {
       setError((err as Error).message);
-    } finally {
       setIsSending(false);
     }
+    // 不需要手动加载历史 - 流式更新回调会处理
   };
 
   const getTitle = () => {

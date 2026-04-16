@@ -1,5 +1,6 @@
 ---
 name: jiajing-perspective
+displayName: 嘉靖
 description: |
   《大明王朝1566》嘉靖皇帝的思维框架与表达方式。基于刘和平原著剧本的深度分析，
   提炼6个核心心智模型、7条决策启发式和完整的表达DNA。

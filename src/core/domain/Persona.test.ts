@@ -79,6 +79,39 @@ Content after empty frontmatter`;
       expect(metadata.name).toBe('');
       expect(metadata.description).toBe('');
     });
+
+    it('should parse YAML multiline block scalar (| preserved)', () => {
+      const content = `---
+name: steve-jobs-perspective
+displayName: 乔布斯
+description: |
+  史蒂夫·乔布斯的思维框架与表达方式。
+  用途：作为思维顾问。
+  第三行内容。
+---
+Content here`;
+
+      const metadata = parseSkillFrontmatter(content);
+
+      expect(metadata.name).toBe('steve-jobs-perspective');
+      expect(metadata.displayName).toBe('乔布斯');
+      expect(metadata.description).toContain('史蒂夫·乔布斯的思维框架');
+      expect(metadata.description).toContain('第三行内容');
+    });
+
+    it('should parse displayName field', () => {
+      const content = `---
+name: feynman-perspective
+displayName: 费曼
+description: 物理学家
+---
+Content`;
+
+      const metadata = parseSkillFrontmatter(content);
+
+      expect(metadata.name).toBe('feynman-perspective');
+      expect(metadata.displayName).toBe('费曼');
+    });
   });
 
   describe('createPersonaFromSkill', () => {
@@ -98,6 +131,19 @@ You are Steve Jobs...`;
       expect(persona.description).toBe('苹果联合创始人');
       expect(persona.tags).toEqual(['设计', '创新']);
       expect(persona.avatar).toBeNull();
+    });
+
+    it('should prefer displayName over name', () => {
+      const contentWithDisplayName = `---
+name: feynman-perspective
+displayName: 费曼
+description: 物理学家
+---
+Content`;
+
+      const persona = createPersonaFromSkill('feynman-skill', contentWithDisplayName, null);
+
+      expect(persona.name).toBe('费曼');
     });
 
     it('should use id as fallback name when not in frontmatter', () => {

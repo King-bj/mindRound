@@ -1,5 +1,6 @@
 ---
 name: zhang-yiming-perspective
+displayName: 张一鸣
 description: |
   张一鸣（字节跳动/TikTok创始人）的思维框架与表达方式。基于6个维度（著作、深度访谈、
   表达DNA、他者视角、决策记录、时间线）的调研，涵盖32个访谈片段、12个重大决策案例，

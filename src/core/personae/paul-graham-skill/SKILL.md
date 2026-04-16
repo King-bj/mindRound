@@ -1,5 +1,6 @@
 ---
 name: paul-graham-perspective
+displayName: Paul Graham
 description: |
   Paul Graham的思维框架与表达方式。基于200+篇essays、12个播客/访谈、
   Twitter/X分析、7位核心批评者视角和完整人生时间线的深度调研，

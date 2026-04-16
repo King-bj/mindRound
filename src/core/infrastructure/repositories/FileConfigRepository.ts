@@ -9,13 +9,18 @@ import type { IPlatformAdapter } from '../platforms/IPlatformAdapter';
 export class FileConfigRepository implements IConfigRepository {
   constructor(private platform: IPlatformAdapter) {}
 
-  private get configPath(): string {
-    return `${this.platform.getDataDir()}/settings.json`;
+  /**
+   * 获取配置文件路径
+   * @returns 配置文件的绝对路径
+   */
+  private async getConfigPath(): Promise<string> {
+    return `${await this.platform.getDataDir()}/settings.json`;
   }
 
   async get(): Promise<AppConfig> {
     try {
-      const content = await this.platform.readFile(this.configPath);
+      const configPath = await this.getConfigPath();
+      const content = await this.platform.readFile(configPath);
       const saved = JSON.parse(content);
       return { ...DEFAULT_CONFIG, ...saved };
     } catch {
@@ -26,7 +31,8 @@ export class FileConfigRepository implements IConfigRepository {
   async update(config: Partial<AppConfig>): Promise<void> {
     const current = await this.get();
     const updated = { ...current, ...config };
-    await this.platform.writeFile(this.configPath, JSON.stringify(updated, null, 2));
+    const configPath = await this.getConfigPath();
+    await this.platform.writeFile(configPath, JSON.stringify(updated, null, 2));
   }
 
   async getApiKey(): Promise<string> {
