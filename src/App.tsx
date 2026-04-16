@@ -107,8 +107,8 @@ function App() {
     [chatRepo, personaRepo]
   );
   const chatService = useMemo(
-    () => new ChatService(chatRepo, apiRepo, contextBuilder),
-    [chatRepo, apiRepo, contextBuilder]
+    () => new ChatService(chatRepo, apiRepo, contextBuilder, personaRepo),
+    [chatRepo, apiRepo, contextBuilder, personaRepo]
   );
   const chatStore = useMemo(() => createChatStore(chatService), [chatService]);
 

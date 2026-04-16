@@ -8,6 +8,7 @@ import type { Chat } from '../domain/Chat';
 import type { IChatRepository } from '../repositories/IChatRepository';
 import type { IApiRepository } from '../repositories/IApiRepository';
 import type { ContextBuilderService } from './ContextBuilderService';
+import type { IPersonaRepository } from '../repositories/IPersonaRepository';
 
 function buildGroupChat(overrides: Partial<Chat> = {}): Chat {
   const now = new Date().toISOString();
@@ -56,20 +57,28 @@ describe('ChatService', () => {
           memory: '',
           skill: 'sys',
         }),
-        buildForGroup: vi.fn().mockImplementation((_c, personaId: string) => {
+        buildGroupRoundContext: vi.fn().mockImplementation((_c, personaId: string) => {
           speakerOrder.push(personaId);
           return Promise.resolve({
-            messages: [],
-            memory: '',
-            skill: 'sys',
+            messages: [{ role: 'user' as const, content: 'instruction' }],
+            system: 'sys',
           });
         }),
+      };
+
+      const personaRepo: Partial<IPersonaRepository> = {
+        scan: vi.fn().mockResolvedValue([
+          { id: 'p-a', name: 'A', description: '', avatar: null, tags: [] },
+          { id: 'p-b', name: 'B', description: '', avatar: null, tags: [] },
+          { id: 'p-c', name: 'C', description: '', avatar: null, tags: [] },
+        ]),
       };
 
       const service = new ChatService(
         chatRepo as IChatRepository,
         apiRepo as IApiRepository,
-        contextBuilder as ContextBuilderService
+        contextBuilder as ContextBuilderService,
+        personaRepo as IPersonaRepository
       );
 
       await service.sendMessage(chat.id, '用户第一句');
@@ -98,7 +107,8 @@ describe('ChatService', () => {
       const service = new ChatService(
         chatRepo as IChatRepository,
         apiRepo as IApiRepository,
-        contextBuilder as ContextBuilderService
+        contextBuilder as ContextBuilderService,
+        {} as IPersonaRepository
       );
 
       const result = await service.addPersonasToGroup(chat.id, ['c', 'c', 'a']);
@@ -119,7 +129,8 @@ describe('ChatService', () => {
       const service = new ChatService(
         chatRepo as IChatRepository,
         {} as IApiRepository,
-        {} as ContextBuilderService
+        {} as ContextBuilderService,
+        {} as IPersonaRepository
       );
 
       await expect(service.addPersonasToGroup('id', ['y'])).rejects.toThrow('group');

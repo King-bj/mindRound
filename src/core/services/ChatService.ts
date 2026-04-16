@@ -7,6 +7,7 @@ import { createUserMessage, createAssistantMessage, type Message } from '../doma
 import type { MessageDTO } from '../domain/Chat';
 import type { IChatRepository } from '../repositories/IChatRepository';
 import type { IApiRepository, ChatRequest } from '../repositories/IApiRepository';
+import type { IPersonaRepository } from '../repositories/IPersonaRepository';
 import type { ContextBuilderService } from './ContextBuilderService';
 import { MEMORY_IDLE_THRESHOLD_MS } from '../utils/constants';
 
@@ -93,7 +94,8 @@ export class ChatService implements IChatService {
   constructor(
     private chatRepo: IChatRepository,
     private apiRepo: IApiRepository,
-    private contextBuilder: ContextBuilderService
+    private contextBuilder: ContextBuilderService,
+    private personaRepo: IPersonaRepository
   ) {}
 
   async sendMessage(chatId: string, content: string): Promise<void> {
@@ -108,10 +110,9 @@ export class ChatService implements IChatService {
       throw new Error(`Chat not found: ${chatId}`);
     }
 
-    const context = await this.contextBuilder.buildForChat(chat);
-    const request = this.buildApiRequest(context);
-
     if (chat.type === 'single') {
+      const context = await this.contextBuilder.buildForChat(chat);
+      const request = this.buildApiRequest(context);
       await this.streamAssistantReply(chatId, request, chat.personaIds[0]);
     } else {
       await this.runGroupChat(chat);
@@ -214,14 +215,27 @@ export class ChatService implements IChatService {
   }
 
   /**
-   * 用户每条消息后，按 personaIds 顺序依次让每位成员各回复一轮
+   * 用户每条消息后，按 personaIds 顺序依次让每位成员各回复一轮（圆桌上下文）
    */
   private async runGroupChat(chat: Chat): Promise<void> {
+    const personas = await this.personaRepo.scan();
+    const personaDisplayNames: Record<string, string> = Object.fromEntries(
+      personas.map((p) => [p.id, p.name] as const)
+    );
     const personaCount = chat.personaIds.length;
     for (let i = 0; i < personaCount; i++) {
       const personaId = chat.personaIds[i];
-      const context = await this.contextBuilder.buildForGroup(chat, personaId);
-      const request = this.buildApiRequest(context);
+      const ctx = await this.contextBuilder.buildGroupRoundContext(
+        chat,
+        personaId,
+        i,
+        personaDisplayNames
+      );
+      const request: ChatRequest = {
+        messages: ctx.messages,
+        system: ctx.system,
+        stream: true,
+      };
 
       await this.streamAssistantReply(chat.id, request, personaId);
       await this.chatRepo.updateSpeakerIndex(chat.id, i);
