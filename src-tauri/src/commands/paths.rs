@@ -119,5 +119,19 @@ pub async fn migrate_user_data(from: String, to: String) -> Result<(), String> {
         copy_dir_recursive(&src, &dst)?;
     }
 
+    // 复制 personae-index.json（如果源文件存在且目标文件不存在）
+    let index_src = from_root.join("personae-index.json");
+    let index_dst = to_root.join("personae-index.json");
+    if index_src.exists() && !index_dst.exists() {
+        fs::copy(&index_src, &index_dst).map_err(|e| {
+            format!(
+                "Failed to copy index file {} -> {}: {}",
+                index_src.display(),
+                index_dst.display(),
+                e
+            )
+        })?;
+    }
+
     Ok(())
 }
