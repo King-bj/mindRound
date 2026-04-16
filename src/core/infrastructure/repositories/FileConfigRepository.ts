@@ -14,7 +14,7 @@ export class FileConfigRepository implements IConfigRepository {
    * @returns 配置文件的绝对路径
    */
   private async getConfigPath(): Promise<string> {
-    return `${await this.platform.getDataDir()}/settings.json`;
+    return this.platform.getSettingsFilePath();
   }
 
   async get(): Promise<AppConfig> {

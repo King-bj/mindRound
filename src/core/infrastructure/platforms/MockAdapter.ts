@@ -107,6 +107,8 @@ class InMemoryFileSystem {
 
 export class MockAdapter implements IPlatformAdapter {
   private dataDir = '/mock-data';
+  /** 与内容根分离，模拟 app_data_dir 下的 settings.json */
+  private readonly settingsFilePath = '/mock-app-data/settings.json';
   private fs: InMemoryFileSystem;
 
   constructor() {
@@ -138,6 +140,23 @@ export class MockAdapter implements IPlatformAdapter {
 
   async getDataDir(): Promise<string> {
     return this.dataDir;
+  }
+
+  invalidateDataDirCache(): void {
+    // 内存模式无缓存
+  }
+
+  async getSettingsFilePath(): Promise<string> {
+    return this.settingsFilePath;
+  }
+
+  async pickFolder(): Promise<string | null> {
+    return null;
+  }
+
+  async migrateUserData(from: string, to: string): Promise<void> {
+    void from;
+    void to;
   }
 
   async getLogsDir(): Promise<string> {

@@ -32,9 +32,24 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
     load();
   }, [configRepository]);
 
+  const handlePickDataDir = async () => {
+    try {
+      const picked = await platformAdapter.pickFolder();
+      if (picked) {
+        setFormData((prev) => (prev ? { ...prev, dataDir: picked } : null));
+      }
+    } catch (err) {
+      setSaveMessage('选择目录失败: ' + (err as Error).message);
+    }
+  };
+
   const handleOpenDataDir = async () => {
-    if (formData?.dataDir) {
-      await platformAdapter.openFolder(formData.dataDir);
+    const path = formData?.dataDir?.trim();
+    if (!path) return;
+    try {
+      await platformAdapter.openFolder(path);
+    } catch (err) {
+      setSaveMessage('打开目录失败: ' + (err as Error).message);
     }
   };
 
@@ -43,12 +58,22 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
     setIsSaving(true);
     setSaveMessage(null);
     try {
-      await configRepository.update(formData);
-      // 同步配置到 API 仓储
+      const oldRoot = await platformAdapter.getDataDir();
+      const normalized: AppConfig = {
+        ...formData,
+        dataDir: formData.dataDir.trim(),
+      };
+      await configRepository.update(normalized);
+      setFormData(normalized);
+      platformAdapter.invalidateDataDirCache?.();
+      const newRoot = await platformAdapter.getDataDir();
+      if (platformAdapter.migrateUserData && oldRoot !== newRoot) {
+        await platformAdapter.migrateUserData(oldRoot, newRoot);
+      }
       apiRepository.updateConfig(
-        formData.apiBaseUrl || 'https://api.openai.com/v1',
-        formData.apiKey,
-        formData.model || 'gpt-4o'
+        normalized.apiBaseUrl || 'https://api.openai.com/v1',
+        normalized.apiKey,
+        normalized.model || 'gpt-4o'
       );
       setSaveMessage('保存成功');
       setTimeout(() => setSaveMessage(null), 2000);
@@ -72,10 +97,12 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
     );
   }
 
+  const hasDataDir = !!formData.dataDir?.trim();
+
   return (
     <div className="settings-page">
       <header className="page-header">
-        <button className="back-btn" onClick={onBack}>
+        <button type="button" className="back-btn" onClick={onBack}>
           ←
         </button>
         <h1 className="page-title">设置</h1>
@@ -125,21 +152,30 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
 
           <div className="form-group">
             <label className="form-label">路径</label>
-            <div className="input-with-button">
+            <div className="input-with-button input-with-two-buttons">
               <input
                 type="text"
                 className="form-input"
                 value={formData.dataDir}
                 onChange={(e) => handleChange('dataDir', e.target.value)}
-                placeholder="数据目录路径"
+                placeholder="留空则使用应用默认目录"
               />
               <button
+                type="button"
                 className="icon-btn"
-                onClick={handleOpenDataDir}
-                disabled={!formData.dataDir}
-                title="打开数据目录"
+                onClick={handlePickDataDir}
+                title="选择目录"
               >
                 📂
+              </button>
+              <button
+                type="button"
+                className="icon-btn"
+                onClick={handleOpenDataDir}
+                disabled={!hasDataDir}
+                title="在资源管理器中打开"
+              >
+                📁
               </button>
             </div>
           </div>
@@ -147,11 +183,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
 
         <section className="settings-section">
           <div className="form-group">
-            <button
-              className="save-btn"
-              onClick={handleSave}
-              disabled={isSaving}
-            >
+            <button type="button" className="save-btn" onClick={handleSave} disabled={isSaving}>
               {isSaving ? '保存中...' : '保存'}
             </button>
             {saveMessage && (

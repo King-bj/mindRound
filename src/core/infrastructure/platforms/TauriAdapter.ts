@@ -2,6 +2,7 @@
  * Tauri 平台适配器
  * @description 通过 Tauri invoke 调用 Rust 命令实现平台特定操作
  */
+import { open } from '@tauri-apps/plugin-dialog';
 import type { IPlatformAdapter, FilePickerOptions } from './IPlatformAdapter';
 import { MockAdapter } from './MockAdapter';
 
@@ -46,6 +47,32 @@ export class TauriAdapter implements IPlatformAdapter {
     const result = await this.invoke<string>('get_data_dir_command');
     this.dataDir = result;
     return result;
+  }
+
+  invalidateDataDirCache(): void {
+    this.dataDir = null;
+  }
+
+  async getSettingsFilePath(): Promise<string> {
+    return this.invoke<string>('get_settings_file_path');
+  }
+
+  async pickFolder(): Promise<string | null> {
+    if (!isTauriEnvironment()) {
+      return null;
+    }
+    const result = await open({ directory: true, multiple: false });
+    if (result === null) {
+      return null;
+    }
+    if (Array.isArray(result)) {
+      return result[0] ?? null;
+    }
+    return result;
+  }
+
+  async migrateUserData(from: string, to: string): Promise<void> {
+    await this.invoke('migrate_user_data', { from, to });
   }
 
   /**

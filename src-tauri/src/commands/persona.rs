@@ -1,7 +1,9 @@
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
-use tauri::{AppHandle, Manager};
+use tauri::AppHandle;
+
+use super::paths::resolve_content_root;
 
 /// 编译时嵌入所有内置 persona 的 SKILL.md 文件
 const BUILTIN_PERSONAS: &[(&str, &str)] = &[
@@ -28,17 +30,10 @@ pub struct Persona {
     pub tags: Vec<String>,
 }
 
-/// 获取应用数据目录
-fn get_data_dir(app: &AppHandle) -> Result<PathBuf, String> {
-    app.path()
-        .app_data_dir()
-        .map_err(|e| format!("Failed to get data dir: {}", e))
-}
-
 /// 首次运行时初始化内置 persona 数据
 /// 检测 personae/ 目录是否存在且非空，若为空则写入内置数据
 pub fn init_builtin_personas(app: &AppHandle) -> Result<(), String> {
-    let data_dir = get_data_dir(app)?;
+    let data_dir = resolve_content_root(app)?;
     let personas_dir = data_dir.join("personae");
 
     // 如果目录已存在且非空，跳过初始化
@@ -194,7 +189,7 @@ fn parse_frontmatter(
 
 #[tauri::command]
 pub async fn scan_personas(app: AppHandle) -> Result<Vec<Persona>, String> {
-    let data_dir = get_data_dir(&app)?;
+    let data_dir = resolve_content_root(&app)?;
     let personas_dir = data_dir.join("personae");
 
     if !personas_dir.exists() {
@@ -248,7 +243,7 @@ pub async fn scan_personas(app: AppHandle) -> Result<Vec<Persona>, String> {
 
 #[tauri::command]
 pub async fn get_persona_skill(app: AppHandle, persona_id: String) -> Result<String, String> {
-    let data_dir = get_data_dir(&app)?;
+    let data_dir = resolve_content_root(&app)?;
     let skill_path = data_dir
         .join("personae")
         .join(&persona_id)

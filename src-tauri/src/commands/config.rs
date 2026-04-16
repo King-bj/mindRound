@@ -1,7 +1,9 @@
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
-use tauri::{AppHandle, Manager};
+use tauri::AppHandle;
+
+use super::paths::{app_data_dir, resolve_content_root, settings_json_path};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct AppConfig {
@@ -25,15 +27,8 @@ impl Default for AppConfig {
     }
 }
 
-fn get_data_dir(app: &AppHandle) -> Result<PathBuf, String> {
-    app.path()
-        .app_data_dir()
-        .map_err(|e| format!("Failed to get data dir: {}", e))
-}
-
 fn get_config_path(app: &AppHandle) -> Result<PathBuf, String> {
-    let data_dir = get_data_dir(app)?;
-    Ok(data_dir.join("settings.json"))
+    settings_json_path(app)
 }
 
 #[tauri::command]
@@ -47,19 +42,15 @@ pub async fn get_config(app: AppHandle) -> Result<AppConfig, String> {
     let content = fs::read_to_string(&config_path)
         .map_err(|e| format!("Failed to read settings.json: {}", e))?;
 
-    let config: AppConfig = serde_json::from_str(&content)
-        .unwrap_or_default();
+    let config: AppConfig = serde_json::from_str(&content).unwrap_or_default();
 
     Ok(config)
 }
 
 #[tauri::command]
 pub async fn update_config(app: AppHandle, config: AppConfig) -> Result<(), String> {
-    let data_dir = get_data_dir(&app)?;
-
-    // Ensure data directory exists
-    fs::create_dir_all(&data_dir)
-        .map_err(|e| format!("Failed to create data dir: {}", e))?;
+    let dir = app_data_dir(&app)?;
+    fs::create_dir_all(&dir).map_err(|e| format!("Failed to create data dir: {}", e))?;
 
     let config_path = get_config_path(&app)?;
     let config_json = serde_json::to_string_pretty(&config)
@@ -73,11 +64,6 @@ pub async fn update_config(app: AppHandle, config: AppConfig) -> Result<(), Stri
 
 #[tauri::command]
 pub async fn get_data_dir_command(app: AppHandle) -> Result<String, String> {
-    let data_dir = get_data_dir(&app)?;
-
-    // Ensure data directory exists
-    fs::create_dir_all(&data_dir)
-        .map_err(|e| format!("Failed to create data dir: {}", e))?;
-
-    Ok(data_dir.to_string_lossy().to_string())
+    let root = resolve_content_root(&app)?;
+    Ok(root.to_string_lossy().to_string())
 }

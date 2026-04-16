@@ -3,16 +3,18 @@ use std::path::PathBuf;
 
 #[tauri::command]
 pub async fn open_folder(path: String) -> Result<(), String> {
-    let path_buf = PathBuf::from(&path);
-
-    if !path_buf.exists() {
-        return Err(format!("Path does not exist: {}", path));
+    let path_buf = PathBuf::from(path.trim());
+    if path_buf.as_os_str().is_empty() {
+        return Err("Path is empty".to_string());
     }
+
+    fs::create_dir_all(&path_buf)
+        .map_err(|e| format!("Failed to create directory: {}", e))?;
 
     #[cfg(target_os = "windows")]
     {
         std::process::Command::new("explorer")
-            .arg(&path)
+            .arg(&path_buf)
             .spawn()
             .map_err(|e| format!("Failed to open folder: {}", e))?;
     }
@@ -20,7 +22,7 @@ pub async fn open_folder(path: String) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     {
         std::process::Command::new("open")
-            .arg(&path)
+            .arg(&path_buf)
             .spawn()
             .map_err(|e| format!("Failed to open folder: {}", e))?;
     }
@@ -28,7 +30,7 @@ pub async fn open_folder(path: String) -> Result<(), String> {
     #[cfg(target_os = "linux")]
     {
         std::process::Command::new("xdg-open")
-            .arg(&path)
+            .arg(&path_buf)
             .spawn()
             .map_err(|e| format!("Failed to open folder: {}", e))?;
     }

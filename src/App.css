@@ -927,6 +927,10 @@
   flex: 1;
 }
 
+.input-with-two-buttons {
+  flex-wrap: wrap;
+}
+
 .icon-btn {
   background: var(--list-item-bg);
   border: 1px solid var(--search-border);

@@ -1,7 +1,9 @@
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
-use tauri::{AppHandle, Manager};
+use tauri::AppHandle;
+
+use super::paths::resolve_content_root;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ChatMeta {
@@ -28,12 +30,6 @@ pub struct MessagesData {
     pub messages: Vec<MessageDTO>,
 }
 
-fn get_data_dir(app: &AppHandle) -> Result<PathBuf, String> {
-    app.path()
-        .app_data_dir()
-        .map_err(|e| format!("Failed to get data dir: {}", e))
-}
-
 #[tauri::command]
 pub async fn create_chat(
     app: AppHandle,
@@ -41,7 +37,7 @@ pub async fn create_chat(
     title: String,
     persona_ids: Vec<String>,
 ) -> Result<ChatMeta, String> {
-    let data_dir = get_data_dir(&app)?;
+    let data_dir = resolve_content_root(&app)?;
     let chats_dir = data_dir.join("chats");
 
     // Create chats directory if not exists
@@ -88,7 +84,7 @@ pub async fn create_chat(
 
 #[tauri::command]
 pub async fn get_chat(app: AppHandle, chat_id: String) -> Result<Option<ChatMeta>, String> {
-    let data_dir = get_data_dir(&app)?;
+    let data_dir = resolve_content_root(&app)?;
     let meta_path = data_dir.join("chats").join(&chat_id).join("meta.json");
 
     if !meta_path.exists() {
@@ -105,7 +101,7 @@ pub async fn get_chat(app: AppHandle, chat_id: String) -> Result<Option<ChatMeta
 
 #[tauri::command]
 pub async fn get_messages(app: AppHandle, chat_id: String) -> Result<Vec<MessageDTO>, String> {
-    let data_dir = get_data_dir(&app)?;
+    let data_dir = resolve_content_root(&app)?;
     let messages_path = data_dir.join("chats").join(&chat_id).join("messages.json");
 
     let content = fs::read_to_string(&messages_path)
@@ -122,7 +118,7 @@ pub async fn add_message(
     chat_id: String,
     message: MessageDTO,
 ) -> Result<(), String> {
-    let data_dir = get_data_dir(&app)?;
+    let data_dir = resolve_content_root(&app)?;
     let messages_path = data_dir.join("chats").join(&chat_id).join("messages.json");
 
     let content = fs::read_to_string(&messages_path)
@@ -142,7 +138,7 @@ pub async fn add_message(
 
 #[tauri::command]
 pub async fn get_memory(app: AppHandle, chat_id: String) -> Result<String, String> {
-    let data_dir = get_data_dir(&app)?;
+    let data_dir = resolve_content_root(&app)?;
     let memory_path = data_dir.join("chats").join(&chat_id).join("memory.md");
 
     match fs::read_to_string(&memory_path) {
@@ -157,7 +153,7 @@ pub async fn update_memory(
     chat_id: String,
     content: String,
 ) -> Result<(), String> {
-    let data_dir = get_data_dir(&app)?;
+    let data_dir = resolve_content_root(&app)?;
     let memory_path = data_dir.join("chats").join(&chat_id).join("memory.md");
 
     fs::write(&memory_path, content).map_err(|e| format!("Failed to write memory.md: {}", e))?;

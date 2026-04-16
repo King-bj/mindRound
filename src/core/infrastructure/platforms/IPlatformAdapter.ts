@@ -17,6 +17,27 @@ export interface IPlatformAdapter {
   getDataDir(): Promise<string>;
 
   /**
+   * `settings.json` 绝对路径（固定于应用数据目录，与内容根分离）
+   */
+  getSettingsFilePath(): Promise<string>;
+
+  /**
+   * 原生文件夹选择对话框
+   * @returns 所选目录绝对路径，取消则为 null
+   */
+  pickFolder(): Promise<string | null>;
+
+  /**
+   * 将 personae/chats 从旧内容根迁移到新根（Tauri 专用）
+   */
+  migrateUserData?(from: string, to: string): Promise<void>;
+
+  /**
+   * 清除 getDataDir 缓存，配置中的 dataDir 变更后调用
+   */
+  invalidateDataDirCache?(): void;
+
+  /**
    * 获取日志目录路径
    * @returns 日志目录的绝对路径
    */
