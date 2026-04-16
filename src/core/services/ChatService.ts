@@ -76,6 +76,14 @@ export interface IChatService {
   getChatById(chatId: string): Promise<Chat | null>;
 
   /**
+   * 向群聊追加成员（去重，保持原有顺序在前）
+   * @param chatId - 会话 ID
+   * @param newPersonaIds - 要追加的人格 ID
+   * @returns 更新后的会话
+   */
+  addPersonasToGroup(chatId: string, newPersonaIds: string[]): Promise<Chat>;
+
+  /**
    * 消息更新事件（流式更新时触发）
    */
   onMessageUpdate?: (event: MessageUpdateEvent) => void;
@@ -149,6 +157,32 @@ export class ChatService implements IChatService {
     return this.chatRepo.findById(chatId);
   }
 
+  async addPersonasToGroup(chatId: string, newPersonaIds: string[]): Promise<Chat> {
+    const chat = await this.chatRepo.findById(chatId);
+    if (!chat) {
+      throw new Error(`Chat not found: ${chatId}`);
+    }
+    if (chat.type !== 'group') {
+      throw new Error('addPersonasToGroup only applies to group chats');
+    }
+    const extra = [
+      ...new Set(newPersonaIds.filter((id) => !chat.personaIds.includes(id))),
+    ];
+    if (extra.length === 0) {
+      return chat;
+    }
+    const merged = [...chat.personaIds, ...extra];
+    if (merged.length < 2) {
+      throw new Error('Group chat requires at least 2 personas');
+    }
+    await this.chatRepo.update(chatId, { personaIds: merged });
+    const updated = await this.chatRepo.findById(chatId);
+    if (!updated) {
+      throw new Error(`Chat not found after update: ${chatId}`);
+    }
+    return updated;
+  }
+
   onMessageUpdate?: (event: MessageUpdateEvent) => void;
 
   private async streamAssistantReply(
@@ -179,20 +213,18 @@ export class ChatService implements IChatService {
     });
   }
 
+  /**
+   * 用户每条消息后，按 personaIds 顺序依次让每位成员各回复一轮
+   */
   private async runGroupChat(chat: Chat): Promise<void> {
     const personaCount = chat.personaIds.length;
-    let currentIndex = await this.chatRepo.getSpeakerIndex(chat.id);
-
     for (let i = 0; i < personaCount; i++) {
-      const nextIndex = (currentIndex + 1) % personaCount;
-      const nextPersonaId = chat.personaIds[nextIndex];
-
-      const context = await this.contextBuilder.buildForGroup(chat, nextPersonaId);
+      const personaId = chat.personaIds[i];
+      const context = await this.contextBuilder.buildForGroup(chat, personaId);
       const request = this.buildApiRequest(context);
 
-      await this.streamAssistantReply(chat.id, request, nextPersonaId);
-      await this.chatRepo.updateSpeakerIndex(chat.id, nextIndex);
-      currentIndex = nextIndex;
+      await this.streamAssistantReply(chat.id, request, personaId);
+      await this.chatRepo.updateSpeakerIndex(chat.id, i);
     }
   }
 

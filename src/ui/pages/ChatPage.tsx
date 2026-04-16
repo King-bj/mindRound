@@ -5,8 +5,10 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { MessageBubble } from '../components/MessageBubble';
 import { ChatInput } from '../components/ChatInput';
+import { GroupChatInfoPanel } from '../components/groupChatInfoPanel';
 import { ArrowLeft, MoreHorizontal } from '../components/Icons';
 import type { Chat, MessageDTO } from '../../core/domain/Chat';
+import type { Persona } from '../../core/domain/Persona';
 import type { IChatService } from '../../core/services/ChatService';
 import type { IPersonaRepository } from '../../core/repositories/IPersonaRepository';
 
@@ -32,9 +34,11 @@ export const ChatPage: React.FC<ChatPageProps> = ({
   const [chat, setChat] = useState<Chat | null>(null);
   const [messages, setMessages] = useState<MessageDTO[]>([]);
   const [personaMap, setPersonaMap] = useState<Record<string, PersonaInfo>>({});
+  const [allPersonas, setAllPersonas] = useState<Persona[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isSending, setIsSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showGroupPanel, setShowGroupPanel] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -52,6 +56,7 @@ export const ChatPage: React.FC<ChatPageProps> = ({
         setMessages(history);
         setChat(chatData);
 
+        setAllPersonas(personas);
         const map: Record<string, PersonaInfo> = {};
         personas.forEach((p) => {
           map[p.id] = { id: p.id, name: p.name, avatar: p.avatar };
@@ -120,6 +125,21 @@ export const ChatPage: React.FC<ChatPageProps> = ({
     // 不需要手动加载历史 - 流式更新回调会处理
   };
 
+  /**
+   * 群聊追加成员后刷新会话元数据与人格映射
+   */
+  const handleAddGroupPersonas = async (personaIds: string[]) => {
+    const updated = await chatService.addPersonasToGroup(chatId, personaIds);
+    setChat(updated);
+    const personas = await personaRepository.scan();
+    setAllPersonas(personas);
+    const map: Record<string, PersonaInfo> = {};
+    personas.forEach((p) => {
+      map[p.id] = { id: p.id, name: p.name, avatar: p.avatar };
+    });
+    setPersonaMap(map);
+  };
+
   const getTitle = () => {
     if (!chat) return '加载中...';
     if (chat.type === 'group') return chat.title;
@@ -145,9 +165,19 @@ export const ChatPage: React.FC<ChatPageProps> = ({
           <ArrowLeft size={20} strokeWidth={2} />
         </button>
         <h1 className="wechat-header-title">{getTitle()}</h1>
-        <button className="wechat-header-btn" aria-label="更多选项">
-          <MoreHorizontal size={20} strokeWidth={2} />
-        </button>
+        {chat?.type === 'group' ? (
+          <button
+            type="button"
+            className="wechat-header-btn"
+            aria-label="群资料与成员"
+            aria-expanded={showGroupPanel}
+            onClick={() => setShowGroupPanel((v) => !v)}
+          >
+            <MoreHorizontal size={20} strokeWidth={2} />
+          </button>
+        ) : (
+          <span className="wechat-header-btn-placeholder" aria-hidden />
+        )}
       </header>
 
       {error && (
@@ -190,6 +220,16 @@ export const ChatPage: React.FC<ChatPageProps> = ({
       <div className="chat-input-area">
         <ChatInput onSend={handleSend} disabled={isSending} />
       </div>
+
+      {chat?.type === 'group' && (
+        <GroupChatInfoPanel
+          isOpen={showGroupPanel}
+          chat={chat}
+          allPersonas={allPersonas}
+          onClose={() => setShowGroupPanel(false)}
+          onAddPersonas={handleAddGroupPersonas}
+        />
+      )}
     </div>
   );
 };
