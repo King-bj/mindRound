@@ -10,6 +10,7 @@ import type { IApiRepository, ChatRequest } from '../repositories/IApiRepository
 import type { IPersonaRepository } from '../repositories/IPersonaRepository';
 import type { ContextBuilderService } from './ContextBuilderService';
 import { MEMORY_IDLE_THRESHOLD_MS } from '../utils/constants';
+import { timestamp } from '../utils';
 
 /** 记忆摘要提示词模板 */
 const MEMORY_SUMMARIZER_PROMPT = `你是一名记忆整理助手。根据对话历史，提取关键信息追加到现有记忆中。
@@ -125,11 +126,25 @@ export class ChatService implements IChatService {
   }
 
   async createSingleChat(personaId: string): Promise<Chat> {
+    const related = await this.chatRepo.findByPersona(personaId);
+    const existingSingle = related.find(
+      (c) =>
+        c.type === 'single' &&
+        c.personaIds.length === 1 &&
+        c.personaIds[0] === personaId
+    );
+    if (existingSingle) {
+      return existingSingle;
+    }
+
+    const now = timestamp();
     return this.chatRepo.create({
       type: 'single',
       title: personaId,
       personaIds: [personaId],
       currentSpeakerIndex: 0,
+      createdAt: now,
+      updatedAt: now,
     });
   }
 
@@ -138,11 +153,14 @@ export class ChatService implements IChatService {
       throw new Error('Group chat requires at least 2 personas');
     }
 
+    const now = timestamp();
     return this.chatRepo.create({
       type: 'group',
       title,
       personaIds,
       currentSpeakerIndex: 0,
+      createdAt: now,
+      updatedAt: now,
     });
   }
 

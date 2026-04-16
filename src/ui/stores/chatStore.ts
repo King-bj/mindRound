@@ -95,7 +95,7 @@ export function createChatStore(chatService: IChatService) {
       try {
         const chat = await chatService.createSingleChat(personaId);
         set((state) => ({
-          chats: [chat, ...state.chats],
+          chats: [chat, ...state.chats.filter((c) => c.id !== chat.id)],
           currentChat: chat,
           messages: [],
           isLoading: false,

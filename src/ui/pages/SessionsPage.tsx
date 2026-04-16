@@ -2,7 +2,7 @@
  * 会话列表页面
  * @description 显示所有会话，包含单聊和群聊
  */
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Users, EmptyChatsIllustration } from '../components/Icons';
 import { formatRelativeTime } from '../../core/utils/time';
 import type { Chat } from '../../core/domain/Chat';
@@ -56,6 +56,22 @@ export const SessionsPage: React.FC<SessionsPageProps> = ({
     loadChats();
   }, [loadChats]);
 
+  /** 单聊按人格去重（列表按更新时间排序，保留每人最新的一条；避免历史重复数据占两行） */
+  const displayChats = useMemo(() => {
+    const seenPersona = new Set<string>();
+    return chats.filter((chat) => {
+      if (chat.type !== 'single' || chat.personaIds.length !== 1) {
+        return true;
+      }
+      const pid = chat.personaIds[0];
+      if (seenPersona.has(pid)) {
+        return false;
+      }
+      seenPersona.add(pid);
+      return true;
+    });
+  }, [chats]);
+
   return (
     <div className="sessions-page-inner">
       <div className="wechat-search-bar" role="search">
@@ -68,7 +84,7 @@ export const SessionsPage: React.FC<SessionsPageProps> = ({
       </div>
 
       <div className="chat-list" role="list" aria-label="会话列表">
-        {chats.length === 0 && !isLoading ? (
+        {displayChats.length === 0 && !isLoading ? (
           <div className="wechat-empty" role="status">
             <div className="wechat-empty-icon">
               <EmptyChatsIllustration />
@@ -79,7 +95,7 @@ export const SessionsPage: React.FC<SessionsPageProps> = ({
             </p>
           </div>
         ) : (
-          chats.map((chat, index) => {
+          displayChats.map((chat, index) => {
             const isGroup = chat.type === 'group';
             const displayName = isGroup
               ? chat.title
