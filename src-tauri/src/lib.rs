@@ -3,8 +3,8 @@ mod commands;
 use commands::{
     add_message, create_chat, create_dir, delete_file, file_exists, get_chat, get_config,
     get_data_dir_command, get_memory, get_messages, get_persona_skill, get_settings_file_path,
-    init_builtin_personas, list_dir, migrate_user_data, open_folder, read_file, scan_personas,
-    update_config, update_memory, write_file,
+    import_persona_skill, init_builtin_personas, list_dir, migrate_user_data, open_folder,
+    read_file, scan_personas, update_config, update_memory, write_file,
 };
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -38,6 +38,7 @@ pub fn run() {
             // Persona commands
             scan_personas,
             get_persona_skill,
+            import_persona_skill,
             // Config commands
             get_config,
             update_config,

@@ -5,6 +5,14 @@
 import type { Persona } from '../domain/Persona';
 import type { IPersonaRepository } from '../repositories/IPersonaRepository';
 
+/** 从本地目录导入 skill 包（仅 Tauri 桌面端） */
+export interface ImportPersonaOptions {
+  sourceFolderPath: string;
+  personaId: string;
+  displayName: string;
+  avatarSourcePath?: string | null;
+}
+
 /**
  * 人格服务接口
  */
@@ -28,6 +36,11 @@ export interface IPersonaService {
    * @returns SKILL.md 完整内容
    */
   getSkillContent(personaId: string): Promise<string>;
+
+  /**
+   * 将本地文件夹（含 SKILL.md）导入到 personae 目录并更新索引
+   */
+  importPersonaFromFolder(options: ImportPersonaOptions): Promise<void>;
 }
 
 /**
@@ -46,5 +59,15 @@ export class PersonaService implements IPersonaService {
 
   async getSkillContent(personaId: string): Promise<string> {
     return this.personaRepo.getSkillContent(personaId);
+  }
+
+  async importPersonaFromFolder(options: ImportPersonaOptions): Promise<void> {
+    const { invoke } = await import('@tauri-apps/api/core');
+    await invoke('import_persona_skill', {
+      sourcePath: options.sourceFolderPath,
+      personaId: options.personaId,
+      displayName: options.displayName,
+      avatarSourcePath: options.avatarSourcePath ?? null,
+    });
   }
 }

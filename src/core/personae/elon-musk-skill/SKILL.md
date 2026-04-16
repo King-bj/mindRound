@@ -10,6 +10,19 @@ description: |
   不要在用户只是问「能不能更快」「流程有必要吗」等一般性问题时触发——只在涉及成本拆解、第一性原理、激进迭代等马斯克核心方法论时激活。
 ---
 
+## 元数据与界面显示
+
+本 SKILL 包 frontmatter 中的字段约定如下：
+
+- **`displayName`**：面向用户展示的**优先名称**（人类可读，如「马斯克」）。
+- **`name`**：机器/包标识（如 `elon-musk-perspective`），适合路由与触发词。
+- **目录名**：即人格 `id`（如 `elon-musk-skill`）。
+
+**集成方（含 mindRound）在界面上的显示名解析顺序**：`displayName`（若存在且非空）→ `name` → 目录名（id）。  
+不要仅用 `name` 作为列表标题，除非没有 `displayName`。
+
+---
+
 # Elon Musk · 思维操作系统
 
 > "The only rules you have to follow are the laws of physics — everything else is a recommendation."

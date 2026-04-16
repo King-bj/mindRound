@@ -16,6 +16,7 @@ import { FileConfigRepository } from './core/infrastructure/repositories/FileCon
 import { HttpApiRepository } from './core/infrastructure/repositories/HttpApiRepository';
 import { ChatService } from './core/services/ChatService';
 import { ContextBuilderService } from './core/services/ContextBuilderService';
+import { PersonaService } from './core/services/PersonaService';
 import { createChatStore } from './ui/stores/chatStore';
 import './App.css';
 
@@ -110,6 +111,7 @@ function App() {
     () => new ChatService(chatRepo, apiRepo, contextBuilder, personaRepo),
     [chatRepo, apiRepo, contextBuilder, personaRepo]
   );
+  const personaService = useMemo(() => new PersonaService(personaRepo), [personaRepo]);
   const chatStore = useMemo(() => createChatStore(chatService), [chatService]);
 
   useEffect(() => {
@@ -283,6 +285,8 @@ function App() {
             <div className="page-content-nav">
               <ContactsPage
                 personaRepository={personaRepo}
+                personaService={personaService}
+                platformAdapter={platformAdapter}
                 onSelectPersona={handleCreateSingleChat}
                 onBack={() => handleTabChange('chats')}
               />

@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use tauri::AppHandle;
 
 use super::paths::resolve_content_root;
@@ -20,7 +21,9 @@ const BUILTIN_PERSONAS: &[(&str, &str)] = &[
     ("zhangxuefeng-skill", include_str!("../../../src/core/personae/zhangxuefeng-skill/SKILL.md")),
 ];
 
-#[derive(Debug, Serialize, Deserialize)]
+const PERSONA_INDEX_FILE: &str = "personae-index.json";
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Persona {
     pub id: String,
     pub name: String,
@@ -28,6 +31,25 @@ pub struct Persona {
     #[serde(rename = "avatarPath", skip_serializing_if = "Option::is_none")]
     pub avatar_path: Option<String>,
     pub tags: Vec<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct PersonaIndexEntry {
+    pub id: String,
+    #[serde(rename = "displayName")]
+    pub display_name: String,
+    #[serde(default)]
+    pub description: String,
+    #[serde(default)]
+    pub tags: Vec<String>,
+    #[serde(rename = "avatarPath")]
+    pub avatar_path: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct PersonaIndex {
+    pub version: u32,
+    pub entries: Vec<PersonaIndexEntry>,
 }
 
 /// 首次运行时初始化内置 persona 数据
@@ -59,8 +81,117 @@ pub fn init_builtin_personas(app: &AppHandle) -> Result<(), String> {
             .map_err(|e| format!("Failed to write SKILL.md for {}: {}", id, e))?;
     }
 
+    let index = build_builtin_index();
+    save_index(&data_dir.join(PERSONA_INDEX_FILE), &index)?;
+
     log::info!("Initialized {} built-in personas", BUILTIN_PERSONAS.len());
     Ok(())
+}
+
+fn build_builtin_index() -> PersonaIndex {
+    let mut entries = Vec::new();
+    for (id, content) in BUILTIN_PERSONAS {
+        let (name, display_name, description, tags) = parse_frontmatter(content);
+        let display = display_name.or(name).unwrap_or_else(|| id.to_string());
+        entries.push(PersonaIndexEntry {
+            id: id.to_string(),
+            display_name: display,
+            description: description.unwrap_or_default(),
+            tags,
+            avatar_path: None,
+        });
+    }
+    entries.sort_by(|a, b| a.id.cmp(&b.id));
+    PersonaIndex {
+        version: 1,
+        entries,
+    }
+}
+
+fn load_index(path: &Path) -> Result<PersonaIndex, String> {
+    let raw = fs::read_to_string(path).map_err(|e| format!("read index: {}", e))?;
+    serde_json::from_str(&raw).map_err(|e| format!("parse index: {}", e))
+}
+
+fn save_index(path: &Path, index: &PersonaIndex) -> Result<(), String> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).map_err(|e| format!("create parent: {}", e))?;
+    }
+    let json = serde_json::to_string_pretty(index).map_err(|e| format!("serialize index: {}", e))?;
+    fs::write(path, json).map_err(|e| format!("write index: {}", e))
+}
+
+fn index_path(data_dir: &Path) -> PathBuf {
+    data_dir.join(PERSONA_INDEX_FILE)
+}
+
+fn rebuild_index_from_disk(data_dir: &Path) -> Result<PersonaIndex, String> {
+    let personas_dir = data_dir.join("personae");
+    if !personas_dir.exists() {
+        return Ok(PersonaIndex {
+            version: 1,
+            entries: vec![],
+        });
+    }
+
+    let mut entries = Vec::new();
+    for entry in fs::read_dir(&personas_dir).map_err(|e| format!("read personae: {}", e))? {
+        let entry = entry.map_err(|e| format!("entry: {}", e))?;
+        let path = entry.path();
+        if !path.is_dir() {
+            continue;
+        }
+        let id = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("")
+            .to_string();
+        let skill_path = path.join("SKILL.md");
+        if !skill_path.exists() {
+            continue;
+        }
+        let content = fs::read_to_string(&skill_path).map_err(|e| format!("read skill: {}", e))?;
+        let (_name, display_name, description, tags) = parse_frontmatter(&content);
+        let display = display_name.or(_name).unwrap_or_else(|| id.clone());
+        let avatar_path = path.join("avatar.png");
+        let avatar = if avatar_path.exists() {
+            Some("avatar.png".to_string())
+        } else {
+            None
+        };
+        entries.push(PersonaIndexEntry {
+            id,
+            display_name: display,
+            description: description.unwrap_or_default(),
+            tags,
+            avatar_path: avatar,
+        });
+    }
+    entries.sort_by(|a, b| a.id.cmp(&b.id));
+    Ok(PersonaIndex {
+        version: 1,
+        entries,
+    })
+}
+
+fn resolve_avatar_abs(
+    data_dir: &Path,
+    persona_id: &str,
+    index_rel: Option<&String>,
+) -> Option<String> {
+    let base = data_dir.join("personae").join(persona_id);
+    if let Some(rel) = index_rel {
+        let p = base.join(rel);
+        if p.exists() {
+            return Some(p.to_string_lossy().to_string());
+        }
+    }
+    let default_png = base.join("avatar.png");
+    if default_png.exists() {
+        Some(default_png.to_string_lossy().to_string())
+    } else {
+        None
+    }
 }
 
 /// 解析 YAML 块标量内容
@@ -196,45 +327,73 @@ pub async fn scan_personas(app: AppHandle) -> Result<Vec<Persona>, String> {
         return Ok(vec![]);
     }
 
+    let idx_path = index_path(&data_dir);
+    let mut index = if idx_path.exists() {
+        load_index(&idx_path).ok()
+    } else {
+        None
+    };
+
+    if index.is_none() || index.as_ref().map(|i| i.entries.is_empty()).unwrap_or(true) {
+        let rebuilt = rebuild_index_from_disk(&data_dir)?;
+        save_index(&idx_path, &rebuilt)?;
+        index = Some(rebuilt);
+    }
+
+    let index = index.unwrap();
+    let map: HashMap<String, PersonaIndexEntry> =
+        index.entries.into_iter().map(|e| (e.id.clone(), e)).collect();
+
     let mut personas = vec![];
+    let mut dir_entries: Vec<_> = fs::read_dir(&personas_dir)
+        .map_err(|e| format!("Failed to read personae dir: {}", e))?
+        .flatten()
+        .collect();
+    dir_entries.sort_by_key(|e| e.path());
 
-    let entries = fs::read_dir(&personas_dir)
-        .map_err(|e| format!("Failed to read personae dir: {}", e))?;
-
-    for entry in entries.flatten() {
+    for entry in dir_entries {
         let path = entry.path();
-        if path.is_dir() {
-            let id = path
-                .file_name()
-                .and_then(|n| n.to_str())
-                .unwrap_or("")
-                .to_string();
+        if !path.is_dir() {
+            continue;
+        }
+        let id = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("")
+            .to_string();
 
-            let skill_path = path.join("SKILL.md");
-            if skill_path.exists() {
-                if let Ok(content) = fs::read_to_string(&skill_path) {
-                    let (_name, display_name, description, tags) = parse_frontmatter(&content);
+        let skill_path = path.join("SKILL.md");
+        if !skill_path.exists() {
+            continue;
+        }
 
-                    // Check for avatar
-                    let avatar_path = path.join("avatar.png");
-                    let avatar = if avatar_path.exists() {
-                        Some(avatar_path.to_string_lossy().to_string())
-                    } else {
-                        None
-                    };
-
-                    // 优先使用 displayName，回退到 name，最后用 id
-                    let display = display_name.or(_name).unwrap_or_else(|| id.clone());
-
-                    personas.push(Persona {
-                        id,
-                        name: display,
-                        description: description.unwrap_or_default(),
-                        avatar_path: avatar,
-                        tags,
-                    });
-                }
-            }
+        if let Some(idx_entry) = map.get(&id) {
+            let avatar = resolve_avatar_abs(&data_dir, &id, idx_entry.avatar_path.as_ref());
+            personas.push(Persona {
+                id: id.clone(),
+                name: idx_entry.display_name.clone(),
+                description: idx_entry.description.clone(),
+                avatar_path: avatar,
+                tags: idx_entry.tags.clone(),
+            });
+        } else {
+            let content = fs::read_to_string(&skill_path).map_err(|e| {
+                format!(
+                    "Failed to read SKILL.md for {}: {}",
+                    id,
+                    e
+                )
+            })?;
+            let (_name, display_name, description, tags) = parse_frontmatter(&content);
+            let display = display_name.or(_name).unwrap_or_else(|| id.clone());
+            let avatar = resolve_avatar_abs(&data_dir, &id, None);
+            personas.push(Persona {
+                id,
+                name: display,
+                description: description.unwrap_or_default(),
+                avatar_path: avatar,
+                tags,
+            });
         }
     }
 
@@ -251,4 +410,111 @@ pub async fn get_persona_skill(app: AppHandle, persona_id: String) -> Result<Str
 
     fs::read_to_string(&skill_path)
         .map_err(|e| format!("Failed to read SKILL.md: {}", e))
+}
+
+fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<(), String> {
+    let meta = fs::metadata(src).map_err(|e| format!("source: {}", e))?;
+    if src == dst {
+        return Err("source and dest are the same".to_string());
+    }
+    if !meta.is_dir() {
+        return Err("source is not a directory".to_string());
+    }
+    fs::create_dir_all(dst).map_err(|e| format!("mkdir dest: {}", e))?;
+    for entry in fs::read_dir(src).map_err(|e| format!("read src: {}", e))? {
+        let entry = entry.map_err(|e| format!("entry: {}", e))?;
+        let from = entry.path();
+        let to = dst.join(entry.file_name());
+        let ty = entry.file_type().map_err(|e| format!("file_type: {}", e))?;
+        if ty.is_dir() {
+            copy_dir_recursive(&from, &to)?;
+        } else {
+            fs::copy(&from, &to).map_err(|e| format!("copy {:?}: {}", from, e))?;
+        }
+    }
+    Ok(())
+}
+
+fn is_valid_persona_id(id: &str) -> bool {
+    !id.is_empty()
+        && id.len() <= 128
+        && id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+}
+
+/// 从本地目录导入 skill 包到 personae/{persona_id}，可选复制头像为 avatar.png
+#[tauri::command]
+pub async fn import_persona_skill(
+    app: AppHandle,
+    source_path: String,
+    persona_id: String,
+    display_name: String,
+    avatar_source_path: Option<String>,
+) -> Result<(), String> {
+    let data_dir = resolve_content_root(&app)?;
+    if !is_valid_persona_id(&persona_id) {
+        return Err(
+            "Invalid persona id: use letters, digits, hyphen and underscore only.".to_string(),
+        );
+    }
+    let src = PathBuf::from(source_path.trim());
+    if !src.is_dir() {
+        return Err("Source path is not a directory".to_string());
+    }
+    if !src.join("SKILL.md").exists() {
+        return Err("Source folder must contain SKILL.md".to_string());
+    }
+
+    let dest = data_dir.join("personae").join(&persona_id);
+    if dest.exists() {
+        return Err("Target persona already exists".to_string());
+    }
+
+    copy_dir_recursive(&src, &dest)?;
+
+    if let Some(ref avatar_src) = avatar_source_path {
+        let ap = PathBuf::from(avatar_src.trim());
+        if ap.is_file() {
+            let dest_avatar = dest.join("avatar.png");
+            fs::copy(&ap, &dest_avatar).map_err(|e| format!("Copy avatar: {}", e))?;
+        }
+    }
+
+    let skill_content = fs::read_to_string(dest.join("SKILL.md"))
+        .map_err(|e| format!("Read imported SKILL: {}", e))?;
+    let (_name, _display, description, tags) = parse_frontmatter(&skill_content);
+    let avatar_path = if dest.join("avatar.png").exists() {
+        Some("avatar.png".to_string())
+    } else {
+        None
+    };
+
+    let new_entry = PersonaIndexEntry {
+        id: persona_id.clone(),
+        display_name: display_name.trim().to_string(),
+        description: description.unwrap_or_default(),
+        tags,
+        avatar_path,
+    };
+
+    let idx_path = index_path(&data_dir);
+    let mut index = if idx_path.exists() {
+        load_index(&idx_path).unwrap_or(PersonaIndex {
+            version: 1,
+            entries: vec![],
+        })
+    } else {
+        rebuild_index_from_disk(&data_dir).unwrap_or(PersonaIndex {
+            version: 1,
+            entries: vec![],
+        })
+    };
+
+    index.entries.retain(|e| e.id != persona_id);
+    index.entries.push(new_entry);
+    index.entries.sort_by(|a, b| a.id.cmp(&b.id));
+    save_index(&idx_path, &index)?;
+
+    Ok(())
 }

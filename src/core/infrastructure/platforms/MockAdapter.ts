@@ -2,6 +2,8 @@
  * Mock 平台适配器
  * @description 用于测试环境的模拟实现，所有数据存储在内存中
  */
+import { createPersonaFromSkill } from '../../domain/Persona';
+import { serializePersonaIndex, type PersonaIndexFile } from '../../domain/PersonaIndex';
 import type { IPlatformAdapter, FilePickerOptions } from './IPlatformAdapter';
 
 // 使用 Vite import.meta.glob 动态导入所有 persona SKILL.md 文件
@@ -127,6 +129,8 @@ export class MockAdapter implements IPlatformAdapter {
 
     this.fs.mkdirSync(`${this.dataDir}/personae`);
 
+    const indexEntries: PersonaIndexFile['entries'] = [];
+
     for (const [path, content] of Object.entries(personaModules)) {
       const match = path.match(personaPattern);
       if (match) {
@@ -134,8 +138,20 @@ export class MockAdapter implements IPlatformAdapter {
         const personaDir = `${this.dataDir}/personae/${id}`;
         this.fs.mkdirSync(personaDir);
         this.fs.writeFileSync(`${personaDir}/SKILL.md`, content);
+        const p = createPersonaFromSkill(id, content, null);
+        indexEntries.push({
+          id,
+          displayName: p.name,
+          description: p.description,
+          tags: p.tags,
+          avatarPath: null,
+        });
       }
     }
+
+    indexEntries.sort((a, b) => a.id.localeCompare(b.id));
+    const indexFile: PersonaIndexFile = { version: 1, entries: indexEntries };
+    this.fs.writeFileSync(`${this.dataDir}/personae-index.json`, serializePersonaIndex(indexFile));
   }
 
   async getDataDir(): Promise<string> {

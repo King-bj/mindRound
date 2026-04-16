@@ -86,14 +86,23 @@ export class TauriAdapter implements IPlatformAdapter {
 
   /**
    * 打开文件选择器
-   * @param _options - 选择器选项（预留）
+   * @param options - 选择器选项（扩展名过滤等）
    * @returns 选择的文件路径，null 表示取消
    */
-  async openFilePicker(_options?: FilePickerOptions): Promise<string | null> {
-    // TODO: 实现文件选择器对话框
-    // Tauri 2.0 可以使用 @tauri-apps/plugin-dialog
-    console.warn('[TauriAdapter] openFilePicker not implemented yet');
-    return null;
+  async openFilePicker(options?: FilePickerOptions): Promise<string | null> {
+    if (!isTauriEnvironment()) {
+      return null;
+    }
+    const { open } = await import('@tauri-apps/plugin-dialog');
+    const result = await open({
+      multiple: false,
+      directory: options?.directory ?? false,
+      filters: options?.filters,
+    });
+    if (result === null) {
+      return null;
+    }
+    return Array.isArray(result) ? result[0] ?? null : result;
   }
 
   /**
