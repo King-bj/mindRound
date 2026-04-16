@@ -7,6 +7,11 @@ import { MessageCircle, Users, Settings } from './Icons';
 
 export type TabType = 'chats' | 'contacts' | 'settings';
 
+interface TabBarProps {
+  activeTab: TabType;
+  onTabChange: (tab: TabType) => void;
+}
+
 interface TabItemProps {
   icon: React.ReactNode;
   label: string;
@@ -27,7 +32,7 @@ const TabItem: React.FC<TabItemProps> = ({ icon, label, isActive, onClick, ariaL
   </button>
 );
 
-export const TabBar: React.FC<TabType> = ({ activeTab, onTabChange }: TabBarProps) => {
+export const TabBar: React.FC<TabBarProps> = ({ activeTab, onTabChange }) => {
   return (
     <nav className="tab-bar" role="tablist" aria-label="主导航">
       <TabItem
@@ -54,8 +59,3 @@ export const TabBar: React.FC<TabType> = ({ activeTab, onTabChange }: TabBarProp
     </nav>
   );
 };
-
-interface TabBarProps {
-  activeTab: TabType;
-  onTabChange: (tab: TabType) => void;
-}
