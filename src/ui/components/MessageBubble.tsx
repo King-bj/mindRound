@@ -73,9 +73,22 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
     <div className={`message-bubble-body ${isUser ? 'user' : 'assistant'}`}>
       {isUser ? (
         <p className="message-text">{displayText}</p>
+      ) : displayText.trim() === '' ? (
+        <div
+          className="message-md message-text message-bubble-typing-wrap"
+          role="status"
+          aria-live="polite"
+        >
+          <span className="message-bubble-typing-dots" aria-hidden="true">
+            <span />
+            <span />
+            <span />
+          </span>
+          <span>正在输入…</span>
+        </div>
       ) : (
         <div className="message-md message-text">
-          <ReactMarkdown remarkPlugins={[remarkGfm]}>{displayText || '\u00a0'}</ReactMarkdown>
+          <ReactMarkdown remarkPlugins={[remarkGfm]}>{displayText}</ReactMarkdown>
         </div>
       )}
     </div>

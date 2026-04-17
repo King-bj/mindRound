@@ -520,9 +520,28 @@
   width: 100%;
 }
 
+.chat-input-wrap {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.chat-input-area .chat-input-wrap {
+  width: 100%;
+  box-sizing: border-box;
+}
+
 .chat-input-area .chat-input-container {
   width: 100%;
   box-sizing: border-box;
+}
+
+.chat-input-status-hint {
+  margin: 0;
+  padding: 0 12px 10px;
+  font-size: 12px;
+  line-height: 1.35;
+  color: var(--tab-inactive);
+  background: var(--content-bg);
 }
 
 /* 聊天顶栏：标题居中（左右按钮对称占位） */
@@ -736,19 +755,23 @@
   opacity: 0.75;
 }
 
-.typing-indicator {
-  padding: 12px 16px;
-  color: var(--tab-inactive);
-  font-size: 13px;
+/* 助手气泡内「正在输入」（带头像，与消息行对齐） */
+.message-bubble-typing-wrap {
   display: flex;
   align-items: center;
   gap: 8px;
+  min-height: 1.25em;
+  color: var(--tab-inactive);
+  font-size: 14px;
 }
 
-.typing-indicator::before,
-.typing-indicator::after,
-.typing-indicator span {
-  content: '';
+.message-bubble-typing-dots {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.message-bubble-typing-dots > span {
   width: 6px;
   height: 6px;
   background: var(--tab-inactive);
@@ -756,15 +779,11 @@
   animation: typingBounce 1.4s infinite ease-in-out;
 }
 
-.typing-indicator::before {
-  animation-delay: 0s;
-}
-
-.typing-indicator span {
+.message-bubble-typing-dots > span:nth-child(2) {
   animation-delay: 0.2s;
 }
 
-.typing-indicator::after {
+.message-bubble-typing-dots > span:nth-child(3) {
   animation-delay: 0.4s;
 }
 

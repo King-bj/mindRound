@@ -208,17 +208,15 @@ export const ChatPage: React.FC<ChatPageProps> = ({
             />
           );
         })}
-        {/* 等待助手首包前显示；流式开始后由助手气泡展示，避免与「正在输入」叠在顶部 */}
-        {isSending && !messages.some((m) => m.role === 'assistant') && (
-          <div className="typing-indicator" role="status" aria-live="polite">
-            <span>正在输入...</span>
-          </div>
-        )}
         <div ref={messagesEndRef} />
       </div>
 
       <div className="chat-input-area">
-        <ChatInput onSend={handleSend} disabled={isSending} />
+        <ChatInput
+          onSend={handleSend}
+          disabled={isSending}
+          statusHint={isSending ? '对方正在输入…' : undefined}
+        />
       </div>
 
       {chat?.type === 'group' && (

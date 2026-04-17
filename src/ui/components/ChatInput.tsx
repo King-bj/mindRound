@@ -11,6 +11,8 @@ interface ChatInputProps {
   disabled?: boolean;
   /** 占位符文本 */
   placeholder?: string;
+  /** 禁用时在输入区下方展示的辅助说明（如等待回复） */
+  statusHint?: string;
 }
 
 /**
@@ -22,6 +24,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   onSend,
   disabled = false,
   placeholder = '输入消息...',
+  statusHint,
 }) => {
   const [value, setValue] = useState('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -60,25 +63,32 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   }, []);
 
   return (
-    <div className="chat-input-container">
-      <textarea
-        ref={textareaRef}
-        className="chat-input-textarea"
-        value={value}
-        onChange={handleChange}
-        onKeyDown={handleKeyDown}
-        placeholder={placeholder}
-        disabled={disabled}
-        rows={1}
-      />
-      <button
-        className="chat-input-send-btn"
-        onClick={handleSend}
-        disabled={disabled || !value.trim()}
-        type="button"
-      >
-        发送
-      </button>
+    <div className="chat-input-wrap">
+      <div className="chat-input-container">
+        <textarea
+          ref={textareaRef}
+          className="chat-input-textarea"
+          value={value}
+          onChange={handleChange}
+          onKeyDown={handleKeyDown}
+          placeholder={placeholder}
+          disabled={disabled}
+          rows={1}
+        />
+        <button
+          className="chat-input-send-btn"
+          onClick={handleSend}
+          disabled={disabled || !value.trim()}
+          type="button"
+        >
+          发送
+        </button>
+      </div>
+      {disabled && statusHint ? (
+        <p className="chat-input-status-hint" role="status" aria-live="polite">
+          {statusHint}
+        </p>
+      ) : null}
     </div>
   );
 };

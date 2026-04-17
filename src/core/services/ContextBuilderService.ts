@@ -8,6 +8,7 @@ import type { ChatMessage } from '../repositories/IApiRepository';
 import type { IChatRepository } from '../repositories/IChatRepository';
 import type { IPersonaRepository } from '../repositories/IPersonaRepository';
 import { DEFAULT_TIME_WINDOW_MINUTES } from '../utils/constants';
+import { stripModelThinkBlocks } from '../utils/messageContent';
 
 /**
  * 上下文选项
@@ -57,17 +58,23 @@ export interface GroupRoundApiContext {
  * @param speakerOrderIndex - 本轮中从 0 起，0 为首位人格
  * @param userQuestion - 时间窗内最后一条用户消息全文
  * @param previousSpeakerName - 上一位人格显示名；缺失时走降级文案
+ * @param lockedPersonaName - 本轮唯一角色显示名（身份锁定）
  */
 export function buildFinalInstruction(
   speakerOrderIndex: number,
   userQuestion: string,
-  previousSpeakerName: string | null
+  previousSpeakerName: string | null,
+  lockedPersonaName: string
 ): string {
+  const lock =
+    `【身份锁定】本轮你唯一对应的角色是「${lockedPersonaName.trim() || '（见系统说明）'}」。` +
+    `禁止以圆桌内其他任一人物的第一人称自称或冒充。\n\n`;
   const q = userQuestion.trim() || '（见上文[观众]消息）';
   const base = `【当前讨论焦点】用户[观众]提出的问题/陈述是："${q}"。`;
 
   if (speakerOrderIndex === 0) {
     return (
+      lock +
       base +
       `你是本轮讨论的首位发言人。请围绕上述焦点，给出你角色最核心、最独特的观点。`
     );
@@ -76,12 +83,14 @@ export function buildFinalInstruction(
   const prev = previousSpeakerName?.trim();
   if (!prev) {
     return (
+      lock +
       base +
       `请继续发言。**首要任务**：你必须先针对用户[观众]的问题提出你的见解。**绝对禁止**抛开用户问题只讨论他人的发言。在阐述完核心观点后，你可以简短地回应其他参与者已发表的看法。保持角色性格。`
     );
   }
 
   return (
+    lock +
     base +
     `在上一段发言中，${prev} 已经发表了看法。
 
@@ -107,11 +116,12 @@ export function mapGroupHistoryToApiMessages(
       out.push({ role: 'user', content: `[观众]：${msg.content}` });
     } else if (msg.role === 'assistant') {
       const pid = msg.personaId ?? '';
+      const body = stripModelThinkBlocks(msg.content);
       if (pid === currentPersonaId) {
-        out.push({ role: 'assistant', content: msg.content });
+        out.push({ role: 'assistant', content: body });
       } else {
         const label = (personaDisplayNames[pid] ?? pid) || '其他参与者';
-        out.push({ role: 'user', content: `[${label}]：${msg.content}` });
+        out.push({ role: 'user', content: `[${label}]：${body}` });
       }
     }
   }
@@ -128,6 +138,14 @@ export function getLastUserMessageContent(messages: MessageDTO[]): string {
     }
   }
   return '';
+}
+
+/** 置于 SKILL 正文之前，避免长人格文档淹没「本轮是谁」 */
+function buildRoundtableSystemLead(personaName: string, otherPersonaNames: string): string {
+  return `[圆桌身份 — 必读]
+本轮你唯一对应的角色是「${personaName}」。其他在场者仅作语境参考：${otherPersonaNames}。禁止在输出中混淆或冒用他人身份。
+
+`;
 }
 
 function buildRoundtableSystemAppend(personaName: string, otherPersonaNames: string): string {
@@ -190,13 +208,21 @@ export class ContextBuilderService {
     const otherNames =
       otherIds.map((id) => personaDisplayNames[id] ?? id).join('、') || '（暂无）';
 
-    const system = skill + buildRoundtableSystemAppend(personaName, otherNames);
+    const system =
+      buildRoundtableSystemLead(personaName, otherNames) +
+      skill +
+      buildRoundtableSystemAppend(personaName, otherNames);
 
     const mapped = mapGroupHistoryToApiMessages(rawMessages, currentPersonaId, personaDisplayNames);
     const userQuestion = getLastUserMessageContent(rawMessages);
     const prevId = speakerOrderIndex > 0 ? chat.personaIds[speakerOrderIndex - 1] : null;
     const prevName = prevId ? personaDisplayNames[prevId] ?? prevId : null;
-    const finalInstruction = buildFinalInstruction(speakerOrderIndex, userQuestion, prevName);
+    const finalInstruction = buildFinalInstruction(
+      speakerOrderIndex,
+      userQuestion,
+      prevName,
+      personaName
+    );
 
     return {
       messages: [...mapped, { role: 'user', content: finalInstruction }],

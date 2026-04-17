@@ -212,24 +212,42 @@ export class ChatService implements IChatService {
     const assistantMsg = createAssistantMessage('', personaId);
     let fullContent = '';
 
-    for await (const chunk of this.apiRepo.chat(request)) {
-      fullContent += chunk;
-      assistantMsg.content = fullContent;
+    this.onMessageUpdate?.({
+      chatId,
+      message: this.messageToDTO(assistantMsg),
+      done: false,
+    });
+
+    try {
+      for await (const chunk of this.apiRepo.chat(request)) {
+        fullContent += chunk;
+        assistantMsg.content = fullContent;
+
+        this.onMessageUpdate?.({
+          chatId,
+          message: this.messageToDTO(assistantMsg),
+          done: false,
+        });
+      }
+
+      await this.chatRepo.addMessage(chatId, this.messageToDTO(assistantMsg));
 
       this.onMessageUpdate?.({
         chatId,
         message: this.messageToDTO(assistantMsg),
-        done: false,
+        done: true,
       });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      assistantMsg.content = `（回复失败：${msg}）`;
+      await this.chatRepo.addMessage(chatId, this.messageToDTO(assistantMsg));
+      this.onMessageUpdate?.({
+        chatId,
+        message: this.messageToDTO(assistantMsg),
+        done: true,
+      });
+      throw err;
     }
-
-    await this.chatRepo.addMessage(chatId, this.messageToDTO(assistantMsg));
-
-    this.onMessageUpdate?.({
-      chatId,
-      message: this.messageToDTO(assistantMsg),
-      done: true,
-    });
   }
 
   /**
