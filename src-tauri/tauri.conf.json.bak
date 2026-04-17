@@ -2,12 +2,12 @@
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "MindRound",
   "version": "0.1.0",
-  "identifier": "com.mindround",
+  "identifier": "com.mindround.app",
   "build": {
     "frontendDist": "../dist",
     "devUrl": "http://localhost:5173",
     "beforeDevCommand": "npm run dev",
-    "beforeBuildCommand": "npm run build && npm run stage-bundle-data"
+    "beforeBuildCommand": "npm run build"
   },
   "app": {
     "windows": [
@@ -25,15 +25,7 @@
   },
   "bundle": {
     "active": true,
-    "targets": "nsis",
-    "resources": [
-      "bundle-data/**/*"
-    ],
-    "windows": {
-      "nsis": {
-        "installerHooks": "windows/installer-hooks.nsh"
-      }
-    },
+    "targets": "all",
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",

@@ -4,6 +4,8 @@
  */
 import { createPersonaFromSkill } from '../../domain/Persona';
 import { serializePersonaIndex, type PersonaIndexFile } from '../../domain/PersonaIndex';
+import type { AppConfig } from '../../repositories/IConfigRepository';
+import { DEFAULT_CONFIG } from '../../repositories/IConfigRepository';
 import type { IPlatformAdapter, FilePickerOptions } from './IPlatformAdapter';
 
 // 使用 Vite import.meta.glob 动态导入所有 persona SKILL.md 文件
@@ -109,8 +111,9 @@ class InMemoryFileSystem {
 
 export class MockAdapter implements IPlatformAdapter {
   private dataDir = '/mock-data';
-  /** 与内容根分离，模拟 app_data_dir 下的 settings.json */
+  /** 与内容根分离，模拟存储根下的 settings.json / credentials.json */
   private readonly settingsFilePath = '/mock-app-data/settings.json';
+  private readonly credentialsFilePath = '/mock-app-data/credentials.json';
   private fs: InMemoryFileSystem;
 
   constructor() {
@@ -164,6 +167,37 @@ export class MockAdapter implements IPlatformAdapter {
 
   async getSettingsFilePath(): Promise<string> {
     return this.settingsFilePath;
+  }
+
+  async loadAppConfig(): Promise<AppConfig> {
+    const merged: AppConfig = { ...DEFAULT_CONFIG };
+    try {
+      const raw = await this.readFile(this.settingsFilePath);
+      const s = JSON.parse(raw) as Partial<AppConfig>;
+      if (typeof s.apiBaseUrl === 'string') merged.apiBaseUrl = s.apiBaseUrl;
+      if (typeof s.model === 'string') merged.model = s.model;
+      if (typeof s.dataDir === 'string') merged.dataDir = s.dataDir;
+    } catch {
+      /* 缺失或非 JSON */
+    }
+    try {
+      const raw = await this.readFile(this.credentialsFilePath);
+      const c = JSON.parse(raw) as { apiKey?: string };
+      if (typeof c.apiKey === 'string') merged.apiKey = c.apiKey;
+    } catch {
+      /* 缺失 */
+    }
+    if (!merged.dataDir?.trim()) {
+      merged.dataDir = await this.getDataDir();
+    }
+    return merged;
+  }
+
+  async saveAppConfig(config: AppConfig): Promise<void> {
+    await this.mkdir('/mock-app-data');
+    const { apiKey, ...rest } = config;
+    await this.writeFile(this.settingsFilePath, JSON.stringify(rest, null, 2));
+    await this.writeFile(this.credentialsFilePath, JSON.stringify({ apiKey }, null, 2));
   }
 
   async pickFolder(): Promise<string | null> {

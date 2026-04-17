@@ -23,9 +23,10 @@ export const SessionsPage: React.FC<SessionsPageProps> = ({
   chatService,
   personaRepository,
   onSelectChat,
-  onCreateGroup,
-  onContacts,
   selectedChatId = null,
+  // 预留功能参数：暂未实现
+  onCreateGroup: _onCreateGroup,
+  onContacts: _onContacts,
 }) => {
   const [chats, setChats] = useState<Chat[]>([]);
   const [isLoading, setIsLoading] = useState(false);

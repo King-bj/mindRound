@@ -1,21 +1,65 @@
-//! 应用数据路径：固定 `settings.json` 在 app_data_dir，用户内容根可由配置 `dataDir` 覆盖。
+//! 应用数据路径：`settings.json` 与 `credentials.json` 位于 `app_storage_root`；
+//! 正式版（桌面 release）为安装目录下 `data/`，debug 与移动端为系统 `app_data_dir`。
+//! 用户内容根可由 `settings.json` 的 `dataDir` 覆盖。
+//!
+//! 注意：不可使用 `PathResolver::executable_dir()`：在 Windows 上未实现（恒失败），且在其他平台表示的是
+//! XDG 的 `~/.local/bin` 等用户目录，并非「可执行文件所在目录」。
 use std::fs;
 use std::path::{Path, PathBuf};
 use tauri::{AppHandle, Manager};
 
-/// 系统应用数据目录（`settings.json` 所在根目录）
+/// 可执行文件所在目录（用于 Windows/Linux 安装目录旁的 `data/`）。
+/// `current_exe()` 在常见安装场景下可解析到真实路径；失败时返回明确错误。
+fn install_dir_from_current_exe() -> Result<PathBuf, String> {
+    let exe = std::env::current_exe()
+        .map_err(|e| format!("Failed to get current executable path: {}", e))?;
+    exe.parent()
+        .ok_or_else(|| "Current executable path has no parent directory".to_string())
+        .map(Path::to_path_buf)
+}
+
+/// 系统应用数据目录（仅 debug 桌面与移动平台用作存储根）
 pub fn app_data_dir(app: &AppHandle) -> Result<PathBuf, String> {
     app.path()
         .app_data_dir()
         .map_err(|e| format!("Failed to get app data dir: {}", e))
 }
 
-/// `settings.json` 绝对路径（始终位于 app_data_dir）
-pub fn settings_json_path(app: &AppHandle) -> Result<PathBuf, String> {
-    Ok(app_data_dir(app)?.join("settings.json"))
+/// 配置与内置默认内容（personae/chats）所依赖的存储根目录
+pub fn app_storage_root(app: &AppHandle) -> Result<PathBuf, String> {
+    #[cfg(any(target_os = "android", target_os = "ios"))]
+    {
+        app_data_dir(app)
+    }
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    {
+        if cfg!(debug_assertions) {
+            app_data_dir(app)
+        } else {
+            #[cfg(target_os = "macos")]
+            {
+                // .app 包内路径常只读；release 与 debug 一致使用系统应用数据目录
+                app_data_dir(app)
+            }
+            #[cfg(not(target_os = "macos"))]
+            {
+                Ok(install_dir_from_current_exe()?.join("data"))
+            }
+        }
+    }
 }
 
-/// 从固定位置的 settings.json 读取 `dataDir` 字段（非空则视为自定义内容根）
+/// `settings.json`（非敏感项）绝对路径
+pub fn settings_json_path(app: &AppHandle) -> Result<PathBuf, String> {
+    Ok(app_storage_root(app)?.join("settings.json"))
+}
+
+/// `credentials.json`（apiKey）绝对路径
+pub fn credentials_json_path(app: &AppHandle) -> Result<PathBuf, String> {
+    Ok(app_storage_root(app)?.join("credentials.json"))
+}
+
+/// 从 settings.json 读取 `dataDir` 字段（非空则视为自定义内容根）
 pub fn read_custom_data_dir_from_settings(app: &AppHandle) -> Option<String> {
     let path = settings_json_path(app).ok()?;
     let content = fs::read_to_string(path).ok()?;
@@ -26,11 +70,11 @@ pub fn read_custom_data_dir_from_settings(app: &AppHandle) -> Option<String> {
         .filter(|s| !s.is_empty())
 }
 
-/// 用户数据内容根：`dataDir` 配置优先，否则为 app_data_dir
+/// 用户数据内容根：`dataDir` 配置优先，否则为 `app_storage_root`
 pub fn resolve_content_root(app: &AppHandle) -> Result<PathBuf, String> {
-    let app_dir = app_data_dir(app)?;
-    fs::create_dir_all(&app_dir)
-        .map_err(|e| format!("Failed to create app data dir: {}", e))?;
+    let root = app_storage_root(app)?;
+    fs::create_dir_all(&root)
+        .map_err(|e| format!("Failed to create app storage dir: {}", e))?;
 
     if let Some(custom) = read_custom_data_dir_from_settings(app) {
         let p = PathBuf::from(&custom);
@@ -42,11 +86,11 @@ pub fn resolve_content_root(app: &AppHandle) -> Result<PathBuf, String> {
         })?;
         Ok(p)
     } else {
-        Ok(app_dir)
+        Ok(root)
     }
 }
 
-/// 供前端写入 settings.json 的绝对路径
+/// 供前端展示或打开 `settings.json`（不含 apiKey）
 #[tauri::command]
 pub async fn get_settings_file_path(app: AppHandle) -> Result<String, String> {
     let p = settings_json_path(&app)?;
@@ -62,7 +106,7 @@ fn subdir_is_missing_or_empty(path: &Path) -> bool {
         .unwrap_or(true)
 }
 
-fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<(), String> {
+pub(crate) fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<(), String> {
     if !src.is_dir() {
         return Ok(());
     }

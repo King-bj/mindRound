@@ -10,14 +10,19 @@ import {
 import type { MessageDTO } from '../domain/Chat';
 
 describe('buildFinalInstruction', () => {
+  const who = 'Paul Graham';
+
   it('speakerOrderIndex 0 时使用首位发言人文案', () => {
-    const s = buildFinalInstruction(0, '你好', null);
+    const s = buildFinalInstruction(0, '你好', null, who);
+    expect(s).toContain('身份锁定');
+    expect(s).toContain(who);
     expect(s).toContain('首位发言人');
     expect(s).toContain('你好');
   });
 
   it('speakerOrderIndex 大于 0 时含首要任务与互动加分', () => {
-    const s = buildFinalInstruction(1, '问题', '费曼');
+    const s = buildFinalInstruction(1, '问题', '费曼', who);
+    expect(s).toContain('身份锁定');
     expect(s).toContain('首要任务');
     expect(s).toContain('互动加分');
     expect(s).toContain('费曼');
@@ -25,7 +30,7 @@ describe('buildFinalInstruction', () => {
   });
 
   it('上一位显示名缺失时降级为不含「上一段」结构', () => {
-    const s = buildFinalInstruction(1, 'Q', null);
+    const s = buildFinalInstruction(1, 'Q', null, who);
     expect(s).toContain('首要任务');
     expect(s).not.toContain('在上一段发言中');
   });
@@ -45,6 +50,21 @@ describe('mapGroupHistoryToAgentMessages', () => {
     expect(msgs[0].content).toBe('[观众]：用户问');
     expect(msgs[1].role).toBe('user');
     expect(msgs[1].content).toBe('[Alpha]：a说');
+  });
+
+  it('assistant 正文会剥离 redacted_thinking，不传入 API', () => {
+    const raw: MessageDTO[] = [
+      {
+        role: 'assistant',
+        content:
+          '<redacted_thinking>\n内部错名\n</redacted_thinking>\n\n对外一句',
+        timestamp: '1',
+        personaId: 'p-a',
+      },
+    ];
+    const msgs = mapGroupHistoryToAgentMessages(raw, 'p-b', { 'p-a': 'Alpha', 'p-b': 'Beta' });
+    expect(msgs[0].content).toBe('[Alpha]：对外一句');
+    expect(msgs[0].content).not.toContain('redacted_thinking');
   });
 
   it('当前人格的 assistant 保持 assistant', () => {

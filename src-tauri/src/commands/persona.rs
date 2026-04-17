@@ -1,25 +1,14 @@
+use include_dir::include_dir;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
-use tauri::AppHandle;
+use tauri::{AppHandle, Manager};
 
-use super::paths::resolve_content_root;
+use super::paths::{copy_dir_recursive, resolve_content_root};
 
-/// 编译时嵌入所有内置 persona 的 SKILL.md 文件
-const BUILTIN_PERSONAS: &[(&str, &str)] = &[
-    ("elon-musk-skill", include_str!("../../../src/core/personae/elon-musk-skill/SKILL.md")),
-    ("feynman-skill", include_str!("../../../src/core/personae/feynman-skill/SKILL.md")),
-    ("jiajing-perspective-skill", include_str!("../../../src/core/personae/jiajing-perspective-skill/SKILL.md")),
-    ("laozi-skill", include_str!("../../../src/core/personae/laozi-skill/SKILL.md")),
-    ("luoyonghao-skill", include_str!("../../../src/core/personae/luoyonghao-skill/SKILL.md")),
-    ("paul-graham-skill", include_str!("../../../src/core/personae/paul-graham-skill/SKILL.md")),
-    ("spongebob-skill", include_str!("../../../src/core/personae/spongebob-skill/SKILL.md")),
-    ("steve-jobs-skill", include_str!("../../../src/core/personae/steve-jobs-skill/SKILL.md")),
-    ("trump-skill", include_str!("../../../src/core/personae/trump-skill/SKILL.md")),
-    ("zhang-yiming-skill", include_str!("../../../src/core/personae/zhang-yiming-skill/SKILL.md")),
-    ("zhangxuefeng-skill", include_str!("../../../src/core/personae/zhangxuefeng-skill/SKILL.md")),
-];
+/// 编译期嵌入 `src/core/personae` 下各 skill 完整目录（含 references 等），安装包不再附带 default-data 资源目录。
+static EMBEDDED_PERSONAE: include_dir::Dir = include_dir!("$CARGO_MANIFEST_DIR/../src/core/personae");
 
 const PERSONA_INDEX_FILE: &str = "personae-index.json";
 
@@ -52,60 +41,89 @@ struct PersonaIndex {
     pub entries: Vec<PersonaIndexEntry>,
 }
 
-/// 首次运行时初始化内置 persona 数据
-/// 检测 personae/ 目录是否存在且非空，若为空则写入内置数据
+/// `personae/` 下是否已有任意子目录含 `SKILL.md`（视为用户数据已就绪，避免误跳过）
+fn any_persona_skill_on_disk(personas_dir: &Path) -> bool {
+    if !personas_dir.is_dir() {
+        return false;
+    }
+    let Ok(entries) = fs::read_dir(personas_dir) else {
+        return false;
+    };
+    entries.flatten().any(|e| {
+        let p = e.path();
+        p.is_dir() && p.join("SKILL.md").is_file()
+    })
+}
+
+/// 将内置 persona 写入 `data/personae/`（含 references 等），并生成 `personae-index.json`。
+/// NSIS 安装钩子可在首次安装时把 `bundle-data/personae` 复制到 `data/personae`（与 exe 同级）；
+/// 若仅有 personae 无索引则在此补全。否则从 exe 同目录 `bundle-data/personae` 复制，或回退 `include_dir` 嵌入。
 pub fn init_builtin_personas(app: &AppHandle) -> Result<(), String> {
     let data_dir = resolve_content_root(app)?;
     let personas_dir = data_dir.join("personae");
+    let index_path = data_dir.join(PERSONA_INDEX_FILE);
 
-    // 如果目录已存在且非空，跳过初始化
-    if personas_dir.exists() {
-        if let Ok(entries) = fs::read_dir(&personas_dir) {
-            if entries.count() > 0 {
-                return Ok(());
-            }
+    if any_persona_skill_on_disk(&personas_dir) {
+        if !index_path.exists() {
+            let index = rebuild_index_from_disk(&data_dir)?;
+            save_index(&index_path, &index)?;
+            log::info!("Wrote missing {} for existing personae on disk", PERSONA_INDEX_FILE);
         }
+        return Ok(());
     }
 
-    // 创建 personae 目录
     fs::create_dir_all(&personas_dir)
         .map_err(|e| format!("Failed to create personae dir: {}", e))?;
 
-    // 写入所有内置 persona
-    for (id, content) in BUILTIN_PERSONAS {
-        let persona_dir = personas_dir.join(id);
-        fs::create_dir_all(&persona_dir)
-            .map_err(|e| format!("Failed to create persona dir: {}", e))?;
-        let skill_path = persona_dir.join("SKILL.md");
-        fs::write(&skill_path, content)
-            .map_err(|e| format!("Failed to write SKILL.md for {}: {}", id, e))?;
+    let mut from_packaged_resources = false;
+    if let Ok(resource_dir) = app.path().resource_dir() {
+        let packaged = resource_dir.join("bundle-data").join("personae");
+        if packaged.is_dir() {
+            copy_dir_recursive(&packaged, &personas_dir)?;
+            from_packaged_resources = true;
+            log::info!(
+                "Initialized personae from bundle resources {} -> {}",
+                packaged.display(),
+                personas_dir.display()
+            );
+        }
     }
 
-    let index = build_builtin_index();
+    if !from_packaged_resources {
+        let mut n_files = 0usize;
+        for file in EMBEDDED_PERSONAE.files() {
+            let dest = personas_dir.join(file.path());
+            if let Some(parent) = dest.parent() {
+                fs::create_dir_all(parent).map_err(|e| {
+                    format!(
+                        "Failed to create parent dir {}: {}",
+                        parent.display(),
+                        e
+                    )
+                })?;
+            }
+            fs::write(&dest, file.contents()).map_err(|e| {
+                format!("Failed to write {}: {}", dest.display(), e)
+            })?;
+            n_files += 1;
+        }
+        if n_files == 0 {
+            log::warn!(
+                "No bundle-data resources and empty embed; nothing under {}",
+                personas_dir.display()
+            );
+            return Ok(());
+        }
+        log::info!(
+            "Initialized personae from compile-time embed ({} files) -> {}",
+            n_files,
+            personas_dir.display()
+        );
+    }
+
+    let index = rebuild_index_from_disk(&data_dir)?;
     save_index(&data_dir.join(PERSONA_INDEX_FILE), &index)?;
-
-    log::info!("Initialized {} built-in personas", BUILTIN_PERSONAS.len());
     Ok(())
-}
-
-fn build_builtin_index() -> PersonaIndex {
-    let mut entries = Vec::new();
-    for (id, content) in BUILTIN_PERSONAS {
-        let (name, display_name, description, tags) = parse_frontmatter(content);
-        let display = display_name.or(name).unwrap_or_else(|| id.to_string());
-        entries.push(PersonaIndexEntry {
-            id: id.to_string(),
-            display_name: display,
-            description: description.unwrap_or_default(),
-            tags,
-            avatar_path: None,
-        });
-    }
-    entries.sort_by(|a, b| a.id.cmp(&b.id));
-    PersonaIndex {
-        version: 1,
-        entries,
-    }
 }
 
 fn load_index(path: &Path) -> Result<PersonaIndex, String> {
@@ -233,6 +251,17 @@ fn parse_block_scalar(lines: &[&str], folded: bool) -> String {
     }
 }
 
+/// 取 YAML frontmatter：仅首行与下一处单独成行的 `---` 为边界，避免正文中 `---` 子串或水平线误截断。
+fn extract_frontmatter_lines(content: &str) -> Option<Vec<&str>> {
+    let lines: Vec<&str> = content.lines().collect();
+    let start = lines.iter().position(|l| l.trim() == "---")?;
+    let end_rel = lines[start + 1..]
+        .iter()
+        .position(|l| l.trim() == "---")?;
+    let end = start + 1 + end_rel;
+    Some(lines[start + 1..end].to_vec())
+}
+
 /// 解析 SKILL.md 的 frontmatter，支持 YAML 多行块标量
 /// 返回 (name, displayName, description, tags)
 fn parse_frontmatter(
@@ -243,76 +272,73 @@ fn parse_frontmatter(
     let mut description = None;
     let mut tags = vec![];
 
-    if let Some(start) = content.find("---") {
-        if let Some(end) = content[start + 3..].find("---") {
-            let frontmatter = &content[start + 3..start + 3 + end];
-            let lines: Vec<&str> = frontmatter.lines().collect();
-            let mut i = 0;
+    let Some(lines) = extract_frontmatter_lines(content) else {
+        return (name, display_name, description, tags);
+    };
+    let mut i = 0;
 
-            while i < lines.len() {
-                let line = lines[i];
-                if let Some(colon_pos) = line.find(':') {
-                    let key = line[..colon_pos].trim();
-                    let value = line[colon_pos + 1..].trim();
+    while i < lines.len() {
+        let line = lines[i];
+        if let Some(colon_pos) = line.find(':') {
+            let key = line[..colon_pos].trim();
+            let value = line[colon_pos + 1..].trim();
 
-                    if value == "|"
-                        || value == ">"
-                        || value.starts_with("|-")
-                        || value.starts_with(">-")
+            if value == "|"
+                || value == ">"
+                || value.starts_with("|-")
+                || value.starts_with(">-")
+            {
+                // YAML 多行块标量：收集后续缩进行
+                let folded = value.starts_with('>');
+                let mut block_lines: Vec<&str> = vec![];
+                i += 1;
+                while i < lines.len() {
+                    let next_line = lines[i];
+                    if next_line.is_empty()
+                        || next_line.starts_with("  ")
+                        || next_line.starts_with('\t')
                     {
-                        // YAML 多行块标量：收集后续缩进行
-                        let folded = value.starts_with('>');
-                        let mut block_lines: Vec<&str> = vec![];
+                        block_lines.push(next_line);
                         i += 1;
-                        while i < lines.len() {
-                            let next_line = lines[i];
-                            if next_line.is_empty()
-                                || next_line.starts_with("  ")
-                                || next_line.starts_with('\t')
-                            {
-                                block_lines.push(next_line);
-                                i += 1;
-                            } else {
-                                break;
-                            }
-                        }
-                        let block_content = parse_block_scalar(&block_lines, folded);
-                        match key {
-                            "name" => name = Some(block_content),
-                            "displayName" => display_name = Some(block_content),
-                            "description" => description = Some(block_content),
-                            "tags" => {
-                                let tags_str =
-                                    block_content.trim_matches(|c| c == '[' || c == ']');
-                                tags = tags_str
-                                    .split(',')
-                                    .map(|s| s.trim().to_string())
-                                    .filter(|s| !s.is_empty())
-                                    .collect();
-                            }
-                            _ => {}
-                        }
-                        continue;
-                    }
-
-                    match key {
-                        "name" => name = Some(value.to_string()),
-                        "displayName" => display_name = Some(value.to_string()),
-                        "description" => description = Some(value.to_string()),
-                        "tags" => {
-                            let tags_str = value.trim_matches(|c| c == '[' || c == ']');
-                            tags = tags_str
-                                .split(',')
-                                .map(|s| s.trim().to_string())
-                                .filter(|s| !s.is_empty())
-                                .collect();
-                        }
-                        _ => {}
+                    } else {
+                        break;
                     }
                 }
-                i += 1;
+                let block_content = parse_block_scalar(&block_lines, folded);
+                match key {
+                    "name" => name = Some(block_content),
+                    "displayName" => display_name = Some(block_content),
+                    "description" => description = Some(block_content),
+                    "tags" => {
+                        let tags_str =
+                            block_content.trim_matches(|c| c == '[' || c == ']');
+                        tags = tags_str
+                            .split(',')
+                            .map(|s| s.trim().to_string())
+                            .filter(|s| !s.is_empty())
+                            .collect();
+                    }
+                    _ => {}
+                }
+                continue;
+            }
+
+            match key {
+                "name" => name = Some(value.to_string()),
+                "displayName" => display_name = Some(value.to_string()),
+                "description" => description = Some(value.to_string()),
+                "tags" => {
+                    let tags_str = value.trim_matches(|c| c == '[' || c == ']');
+                    tags = tags_str
+                        .split(',')
+                        .map(|s| s.trim().to_string())
+                        .filter(|s| !s.is_empty())
+                        .collect();
+                }
+                _ => {}
             }
         }
+        i += 1;
     }
 
     (name, display_name, description, tags)
@@ -410,29 +436,6 @@ pub async fn get_persona_skill(app: AppHandle, persona_id: String) -> Result<Str
 
     fs::read_to_string(&skill_path)
         .map_err(|e| format!("Failed to read SKILL.md: {}", e))
-}
-
-fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<(), String> {
-    let meta = fs::metadata(src).map_err(|e| format!("source: {}", e))?;
-    if src == dst {
-        return Err("source and dest are the same".to_string());
-    }
-    if !meta.is_dir() {
-        return Err("source is not a directory".to_string());
-    }
-    fs::create_dir_all(dst).map_err(|e| format!("mkdir dest: {}", e))?;
-    for entry in fs::read_dir(src).map_err(|e| format!("read src: {}", e))? {
-        let entry = entry.map_err(|e| format!("entry: {}", e))?;
-        let from = entry.path();
-        let to = dst.join(entry.file_name());
-        let ty = entry.file_type().map_err(|e| format!("file_type: {}", e))?;
-        if ty.is_dir() {
-            copy_dir_recursive(&from, &to)?;
-        } else {
-            fs::copy(&from, &to).map_err(|e| format!("copy {:?}: {}", from, e))?;
-        }
-    }
-    Ok(())
 }
 
 fn is_valid_persona_id(id: &str) -> bool {

@@ -13,17 +13,11 @@ export class FileConfigRepository implements IConfigRepository {
    * 获取配置文件路径
    * @returns 配置文件的绝对路径
    */
-  private async getConfigPath(): Promise<string> {
-    return this.platform.getSettingsFilePath();
-  }
-
   async get(): Promise<AppConfig> {
     try {
-      const configPath = await this.getConfigPath();
-      const content = await this.platform.readFile(configPath);
-      const saved = JSON.parse(content);
-      return { ...DEFAULT_CONFIG, ...saved };
-    } catch {
+      return await this.platform.loadAppConfig();
+    } catch (err) {
+      console.error('[FileConfigRepository] loadAppConfig failed:', err);
       return { ...DEFAULT_CONFIG };
     }
   }
@@ -31,8 +25,7 @@ export class FileConfigRepository implements IConfigRepository {
   async update(config: Partial<AppConfig>): Promise<void> {
     const current = await this.get();
     const updated = { ...current, ...config };
-    const configPath = await this.getConfigPath();
-    await this.platform.writeFile(configPath, JSON.stringify(updated, null, 2));
+    await this.platform.saveAppConfig(updated);
   }
 
   async getApiKey(): Promise<string> {

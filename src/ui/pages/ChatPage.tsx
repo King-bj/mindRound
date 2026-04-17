@@ -223,7 +223,11 @@ export const ChatPage: React.FC<ChatPageProps> = ({
       </div>
 
       <div className="chat-input-area">
-        <ChatInput onSend={handleSend} disabled={isSending} />
+        <ChatInput
+          onSend={handleSend}
+          disabled={isSending}
+          statusHint={isSending ? '对方正在输入…' : undefined}
+        />
       </div>
 
       {chat?.type === 'group' && (
