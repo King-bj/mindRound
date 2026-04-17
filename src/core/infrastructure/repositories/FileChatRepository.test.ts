@@ -1,10 +1,25 @@
 import { describe, it, expect, beforeEach } from 'vitest';
+import type { Chat } from '../../domain/Chat';
 import { FileChatRepository } from './FileChatRepository';
 import { MockAdapter } from '../platforms/MockAdapter';
 
 describe('FileChatRepository', () => {
   let repo: FileChatRepository;
   let adapter: MockAdapter;
+
+  function makeChatDraft(
+    overrides: Partial<Omit<Chat, 'id'>> = {}
+  ): Omit<Chat, 'id'> {
+    return {
+      type: 'single',
+      title: 'Test',
+      personaIds: ['p1'],
+      currentSpeakerIndex: 0,
+      createdAt: '2024-01-01T00:00:00.000Z',
+      updatedAt: '2024-01-01T00:00:00.000Z',
+      ...overrides,
+    };
+  }
 
   beforeEach(() => {
     adapter = new MockAdapter();
@@ -14,12 +29,11 @@ describe('FileChatRepository', () => {
 
   describe('create', () => {
     it('should create a new chat with generated ID', async () => {
-      const chatData = {
-        type: 'single' as const,
+      const chatData = makeChatDraft({
+        type: 'single',
         title: 'Test Chat',
         personaIds: ['persona-1'],
-        currentSpeakerIndex: 0,
-      };
+      });
 
       const chat = await repo.create(chatData);
 
@@ -31,24 +45,14 @@ describe('FileChatRepository', () => {
     });
 
     it('should create chat directory structure', async () => {
-      const chat = await repo.create({
-        type: 'single',
-        title: 'Test',
-        personaIds: ['p1'],
-        currentSpeakerIndex: 0,
-      });
+      const chat = await repo.create(makeChatDraft());
 
       const exists = await adapter.exists(`/test-data/chats/${chat.id}`);
       expect(exists).toBe(true);
     });
 
     it('should create meta.json, messages.json, and memory.md', async () => {
-      const chat = await repo.create({
-        type: 'single',
-        title: 'Test',
-        personaIds: ['p1'],
-        currentSpeakerIndex: 0,
-      });
+      const chat = await repo.create(makeChatDraft());
 
       const metaExists = await adapter.exists(`/test-data/chats/${chat.id}/meta.json`);
       const messagesExists = await adapter.exists(`/test-data/chats/${chat.id}/messages.json`);
@@ -62,12 +66,7 @@ describe('FileChatRepository', () => {
 
   describe('findById', () => {
     it('should find created chat by ID', async () => {
-      const created = await repo.create({
-        type: 'single',
-        title: 'Find Me',
-        personaIds: ['p1'],
-        currentSpeakerIndex: 0,
-      });
+      const created = await repo.create(makeChatDraft({ title: 'Find Me' }));
 
       const found = await repo.findById(created.id);
 
@@ -85,12 +84,7 @@ describe('FileChatRepository', () => {
 
   describe('addMessage', () => {
     it('should add message to chat', async () => {
-      const chat = await repo.create({
-        type: 'single',
-        title: 'Test',
-        personaIds: ['p1'],
-        currentSpeakerIndex: 0,
-      });
+      const chat = await repo.create(makeChatDraft());
 
       await repo.addMessage(chat.id, {
         role: 'user',
@@ -104,12 +98,7 @@ describe('FileChatRepository', () => {
     });
 
     it('should append multiple messages', async () => {
-      const chat = await repo.create({
-        type: 'single',
-        title: 'Test',
-        personaIds: ['p1'],
-        currentSpeakerIndex: 0,
-      });
+      const chat = await repo.create(makeChatDraft());
 
       await repo.addMessage(chat.id, {
         role: 'user',
@@ -132,12 +121,7 @@ describe('FileChatRepository', () => {
 
   describe('getMessages', () => {
     it('should return empty array for new chat', async () => {
-      const chat = await repo.create({
-        type: 'single',
-        title: 'Test',
-        personaIds: ['p1'],
-        currentSpeakerIndex: 0,
-      });
+      const chat = await repo.create(makeChatDraft());
 
       const messages = await repo.getMessages(chat.id);
 
@@ -147,12 +131,7 @@ describe('FileChatRepository', () => {
 
   describe('getMemory', () => {
     it('should return default memory content', async () => {
-      const chat = await repo.create({
-        type: 'single',
-        title: 'Test',
-        personaIds: ['p1'],
-        currentSpeakerIndex: 0,
-      });
+      const chat = await repo.create(makeChatDraft());
 
       const memory = await repo.getMemory(chat.id);
 
@@ -162,12 +141,7 @@ describe('FileChatRepository', () => {
 
   describe('updateMemory', () => {
     it('should update memory content', async () => {
-      const chat = await repo.create({
-        type: 'single',
-        title: 'Test',
-        personaIds: ['p1'],
-        currentSpeakerIndex: 0,
-      });
+      const chat = await repo.create(makeChatDraft());
 
       await repo.updateMemory(chat.id, '# 新记忆\n- 关键点1');
 
@@ -178,12 +152,7 @@ describe('FileChatRepository', () => {
 
   describe('getSpeakerIndex / updateSpeakerIndex', () => {
     it('should return 0 for new chat', async () => {
-      const chat = await repo.create({
-        type: 'single',
-        title: 'Test',
-        personaIds: ['p1'],
-        currentSpeakerIndex: 0,
-      });
+      const chat = await repo.create(makeChatDraft());
 
       const index = await repo.getSpeakerIndex(chat.id);
 
@@ -191,12 +160,13 @@ describe('FileChatRepository', () => {
     });
 
     it('should update and retrieve speaker index', async () => {
-      const chat = await repo.create({
-        type: 'group',
-        title: 'Group',
-        personaIds: ['p1', 'p2', 'p3'],
-        currentSpeakerIndex: 0,
-      });
+      const chat = await repo.create(
+        makeChatDraft({
+          type: 'group',
+          title: 'Group',
+          personaIds: ['p1', 'p2', 'p3'],
+        })
+      );
 
       await repo.updateSpeakerIndex(chat.id, 2);
       const index = await repo.getSpeakerIndex(chat.id);
@@ -207,19 +177,9 @@ describe('FileChatRepository', () => {
 
   describe('findAll', () => {
     it('should return all created chats', async () => {
-      const chat1 = await repo.create({
-        type: 'single',
-        title: 'Chat 1',
-        personaIds: ['p1'],
-        currentSpeakerIndex: 0,
-      });
+      const chat1 = await repo.create(makeChatDraft({ title: 'Chat 1' }));
 
-      const chat2 = await repo.create({
-        type: 'single',
-        title: 'Chat 2',
-        personaIds: ['p1'],
-        currentSpeakerIndex: 0,
-      });
+      const chat2 = await repo.create(makeChatDraft({ title: 'Chat 2' }));
 
       const all = await repo.findAll();
 
@@ -243,12 +203,7 @@ describe('FileChatRepository', () => {
 
   describe('update', () => {
     it('should update chat properties', async () => {
-      const chat = await repo.create({
-        type: 'single',
-        title: 'Original Title',
-        personaIds: ['p1'],
-        currentSpeakerIndex: 0,
-      });
+      const chat = await repo.create(makeChatDraft({ title: 'Original Title' }));
 
       await repo.update(chat.id, { title: 'Updated Title' });
 

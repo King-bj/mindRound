@@ -4,7 +4,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   buildFinalInstruction,
-  mapGroupHistoryToApiMessages,
+  mapGroupHistoryToAgentMessages,
   getLastUserMessageContent,
 } from './ContextBuilderService';
 import type { MessageDTO } from '../domain/Chat';
@@ -31,23 +31,64 @@ describe('buildFinalInstruction', () => {
   });
 });
 
-describe('mapGroupHistoryToApiMessages', () => {
+describe('mapGroupHistoryToAgentMessages', () => {
   it('将他人 assistant 映射为 user 并带人格标签', () => {
     const raw: MessageDTO[] = [
       { role: 'user', content: '用户问', timestamp: '1' },
       { role: 'assistant', content: 'a说', timestamp: '2', personaId: 'p-a' },
     ];
-    const msgs = mapGroupHistoryToApiMessages(raw, 'p-b', { 'p-a': 'Alpha', 'p-b': 'Beta' });
-    expect(msgs[0]).toEqual({ role: 'user', content: '[观众]：用户问' });
-    expect(msgs[1]).toEqual({ role: 'user', content: '[Alpha]：a说' });
+    const msgs = mapGroupHistoryToAgentMessages(raw, 'p-b', {
+      'p-a': 'Alpha',
+      'p-b': 'Beta',
+    });
+    expect(msgs[0].role).toBe('user');
+    expect(msgs[0].content).toBe('[观众]：用户问');
+    expect(msgs[1].role).toBe('user');
+    expect(msgs[1].content).toBe('[Alpha]：a说');
   });
 
   it('当前人格的 assistant 保持 assistant', () => {
     const raw: MessageDTO[] = [
       { role: 'assistant', content: '我说', timestamp: '1', personaId: 'p-b' },
     ];
-    const msgs = mapGroupHistoryToApiMessages(raw, 'p-b', { 'p-b': 'Beta' });
-    expect(msgs[0]).toEqual({ role: 'assistant', content: '我说' });
+    const msgs = mapGroupHistoryToAgentMessages(raw, 'p-b', { 'p-b': 'Beta' });
+    expect(msgs[0].role).toBe('assistant');
+    expect(msgs[0].content).toBe('我说');
+  });
+
+  it('tool 消息被完全滤掉，assistant.toolCalls 仅保留文本', () => {
+    const raw: MessageDTO[] = [
+      { role: 'user', content: 'Q', timestamp: '1' },
+      {
+        role: 'assistant',
+        content: '让我查一下',
+        timestamp: '2',
+        personaId: 'p-b',
+        toolCalls: [
+          { id: 'c1', name: 'web_search', arguments: '{"query":"x"}' },
+        ],
+      },
+      {
+        role: 'tool',
+        content: 'search result',
+        timestamp: '3',
+        toolCallId: 'c1',
+        name: 'web_search',
+      },
+      {
+        role: 'assistant',
+        content: '查完了',
+        timestamp: '4',
+        personaId: 'p-b',
+      },
+    ];
+    const msgs = mapGroupHistoryToAgentMessages(raw, 'p-b', { 'p-b': 'Beta' });
+    // tool 消息被丢弃
+    expect(msgs.some((m) => m.role === 'tool')).toBe(false);
+    // 两条 assistant 都保留（内容非空）
+    expect(msgs.filter((m) => m.role === 'assistant')).toHaveLength(2);
+    // 所有保留的 assistant 均没有 toolCalls 字段
+    expect(msgs.every((m) => !m.toolCalls)).toBe(true);
   });
 });
 

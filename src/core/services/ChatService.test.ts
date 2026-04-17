@@ -1,6 +1,6 @@
 /**
  * ChatService 单元测试
- * @description 群聊轮次顺序、追加成员
+ * @description 群聊轮次顺序、追加成员（Agent 用 stub 替代）
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { ChatService } from './ChatService';
@@ -9,6 +9,8 @@ import type { IChatRepository } from '../repositories/IChatRepository';
 import type { IApiRepository } from '../repositories/IApiRepository';
 import type { ContextBuilderService } from './ContextBuilderService';
 import type { IPersonaRepository } from '../repositories/IPersonaRepository';
+import type { Agent } from '../agent/Agent';
+import type { AgentStreamEvent } from '../agent/types';
 
 function buildGroupChat(overrides: Partial<Chat> = {}): Chat {
   const now = new Date().toISOString();
@@ -22,6 +24,22 @@ function buildGroupChat(overrides: Partial<Chat> = {}): Chat {
     updatedAt: now,
     ...overrides,
   };
+}
+
+/** 模拟 Agent.run：直接产出一条最终 assistant 消息 */
+function makeStubAgent(): Agent {
+  const run = async function* (input: {
+    personaId?: string;
+  }): AsyncGenerator<AgentStreamEvent> {
+    const msg = {
+      role: 'assistant' as const,
+      content: 'ok',
+      timestamp: new Date().toISOString(),
+      personaId: input.personaId,
+    };
+    yield { type: 'message_done', message: msg };
+  };
+  return { run } as unknown as Agent;
 }
 
 describe('ChatService', () => {
@@ -46,7 +64,8 @@ describe('ChatService', () => {
 
       const apiRepo: Partial<IApiRepository> = {
         chat: async function* () {
-          yield 'ok';
+          // 不会被直接调用（Agent 是 stub）；保留占位
+          yield { type: 'done', finishReason: 'stop' };
         },
         chatComplete: vi.fn().mockResolvedValue(''),
       };
@@ -78,13 +97,98 @@ describe('ChatService', () => {
         chatRepo as IChatRepository,
         apiRepo as IApiRepository,
         contextBuilder as ContextBuilderService,
-        personaRepo as IPersonaRepository
+        personaRepo as IPersonaRepository,
+        makeStubAgent()
       );
 
       await service.sendMessage(chat.id, '用户第一句');
 
       expect(speakerOrder).toEqual(['p-a', 'p-b', 'p-c']);
       expect(chatRepo.updateSpeakerIndex).toHaveBeenLastCalledWith(chat.id, 2);
+    });
+
+    it('在 tool_call 流式阶段推送 assistant 临时消息', async () => {
+      const chat: Chat = {
+        ...buildGroupChat({
+          id: 'chat-single',
+          type: 'single',
+          personaIds: ['p-a'],
+        }),
+      };
+      const chatRepo: Partial<IChatRepository> = {
+        addMessage: vi.fn().mockResolvedValue(undefined),
+        findById: vi.fn().mockResolvedValue(chat),
+        getMessages: vi
+          .fn()
+          .mockResolvedValueOnce([])
+          .mockResolvedValueOnce([
+            { role: 'user', content: '帮我查天气', timestamp: new Date().toISOString() },
+          ]),
+        getMemory: vi.fn().mockResolvedValue(''),
+        updateMemory: vi.fn().mockResolvedValue(undefined),
+      };
+
+      const apiRepo: Partial<IApiRepository> = {
+        chatComplete: vi.fn().mockResolvedValue(''),
+      };
+      const contextBuilder: Partial<ContextBuilderService> = {
+        buildForChat: vi.fn().mockResolvedValue({
+          messages: [{ role: 'user', content: '帮我查天气', timestamp: new Date().toISOString() }],
+          memory: '',
+          skill: 'sys',
+        }),
+      };
+      const personaRepo: Partial<IPersonaRepository> = {
+        scan: vi.fn().mockResolvedValue([]),
+      };
+      const updates: AgentStreamEvent[] = [
+        { type: 'tool_call_start', index: 0, name: 'web_search' },
+        { type: 'tool_call_arguments_delta', index: 0, argumentsDelta: '{"query":"上海天气"}' },
+        {
+          type: 'message_done',
+          message: {
+            role: 'assistant',
+            content: '',
+            timestamp: new Date().toISOString(),
+            personaId: 'p-a',
+            toolCalls: [
+              {
+                id: 'call_1',
+                name: 'web_search',
+                arguments: '{"query":"上海天气"}',
+              },
+            ],
+          },
+        },
+      ];
+      const agent: Agent = {
+        run: async function* () {
+          for (const ev of updates) {
+            yield ev;
+          }
+        },
+      } as unknown as Agent;
+
+      const service = new ChatService(
+        chatRepo as IChatRepository,
+        apiRepo as IApiRepository,
+        contextBuilder as ContextBuilderService,
+        personaRepo as IPersonaRepository,
+        agent
+      );
+
+      const streamPushed: Array<{ done: boolean; toolCallName?: string }> = [];
+      service.onMessageUpdate = (event) => {
+        streamPushed.push({
+          done: event.done,
+          toolCallName: event.message.toolCalls?.[0]?.name,
+        });
+      };
+
+      await service.sendMessage(chat.id, '帮我查天气');
+
+      expect(streamPushed.some((e) => !e.done && e.toolCallName === 'web_search')).toBe(true);
+      expect(chatRepo.addMessage).toHaveBeenCalled();
     });
   });
 
@@ -108,7 +212,8 @@ describe('ChatService', () => {
         chatRepo as IChatRepository,
         apiRepo as IApiRepository,
         contextBuilder as ContextBuilderService,
-        {} as IPersonaRepository
+        {} as IPersonaRepository,
+        makeStubAgent()
       );
 
       const result = await service.addPersonasToGroup(chat.id, ['c', 'c', 'a']);
@@ -130,7 +235,8 @@ describe('ChatService', () => {
         chatRepo as IChatRepository,
         {} as IApiRepository,
         {} as ContextBuilderService,
-        {} as IPersonaRepository
+        {} as IPersonaRepository,
+        makeStubAgent()
       );
 
       await expect(service.addPersonasToGroup('id', ['y'])).rejects.toThrow('group');

@@ -199,17 +199,22 @@ export const ChatPage: React.FC<ChatPageProps> = ({
           const persona = msg.personaId ? personaMap[msg.personaId] : undefined;
           return (
             <MessageBubble
-              key={`${msg.timestamp}-${index}`}
+              key={`${msg.timestamp}-${index}-${msg.role}`}
               role={msg.role}
               content={msg.content}
               timestamp={msg.timestamp}
               speakerName={persona?.name}
               speakerAvatar={persona?.avatar}
+              toolCalls={msg.toolCalls}
+              toolName={msg.name}
+              cached={msg.cached}
             />
           );
         })}
         {/* 等待助手首包前显示；流式开始后由助手气泡展示，避免与「正在输入」叠在顶部 */}
-        {isSending && !messages.some((m) => m.role === 'assistant') && (
+        {isSending && !messages.some(
+          (m) => m.role === 'assistant' || m.role === 'tool'
+        ) && (
           <div className="typing-indicator" role="status" aria-live="polite">
             <span>正在输入...</span>
           </div>

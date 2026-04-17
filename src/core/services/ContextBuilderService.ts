@@ -1,29 +1,24 @@
 /**
  * 上下文构建服务
- * @description 根据 30 分钟时间窗口构建 API 请求上下文；群聊圆桌模式见 buildGroupRoundContext
+ * @description 按 30 分钟时间窗 + 人物卡 + 记忆，组装供 Agent 或 LLM 直调的上下文；
+ * 群聊走圆桌映射：他人发言转成 user [名字]: 前缀；tool 轨迹一律过滤掉
  */
 import type { Chat } from '../domain/Chat';
 import type { MessageDTO } from '../domain/Chat';
-import type { ChatMessage } from '../repositories/IApiRepository';
 import type { IChatRepository } from '../repositories/IChatRepository';
 import type { IPersonaRepository } from '../repositories/IPersonaRepository';
 import { DEFAULT_TIME_WINDOW_MINUTES } from '../utils/constants';
+import { timestamp as isoNow } from '../utils';
 
 /**
  * 上下文选项
  */
 export interface ContextOptions {
-  /** 时间窗口分钟数，默认 30 */
   timeWindowMinutes: number;
-  /** 是否包含记忆 */
   includeMemory: boolean;
-  /** 是否包含人格 */
   includeSkill: boolean;
 }
 
-/**
- * 默认选项
- */
 const DEFAULT_OPTIONS: ContextOptions = {
   timeWindowMinutes: DEFAULT_TIME_WINDOW_MINUTES,
   includeMemory: true,
@@ -31,10 +26,10 @@ const DEFAULT_OPTIONS: ContextOptions = {
 };
 
 /**
- * 构建后的上下文
+ * 单聊上下文
  */
 export interface Context {
-  /** 时间窗口内的消息 */
+  /** 时间窗内的消息（OpenAI 线格式） */
   messages: MessageDTO[];
   /** 记忆内容 */
   memory: string;
@@ -43,20 +38,17 @@ export interface Context {
 }
 
 /**
- * 群聊单轮 API 上下文（已映射圆桌角色 + system + 收尾指令）
+ * 群聊单轮上下文（给 Agent）
  */
-export interface GroupRoundApiContext {
-  /** 供 OpenAI 兼容 API 的 messages（含末尾 finalInstruction） */
-  messages: ChatMessage[];
+export interface GroupRoundContext {
+  /** 已圆桌映射的 MessageDTO（末尾含 finalInstruction 作为 user 消息） */
+  messages: MessageDTO[];
   /** system：人格 SKILL + 圆桌场景说明 */
   system: string;
 }
 
 /**
- * 圆桌模式收尾 user 指令：硬约束答用户 + 软引导交锋
- * @param speakerOrderIndex - 本轮中从 0 起，0 为首位人格
- * @param userQuestion - 时间窗内最后一条用户消息全文
- * @param previousSpeakerName - 上一位人格显示名；缺失时走降级文案
+ * 圆桌模式收尾 user 指令（保留原文案）
  */
 export function buildFinalInstruction(
   speakerOrderIndex: number,
@@ -94,24 +86,42 @@ export function buildFinalInstruction(
 }
 
 /**
- * 将仓库消息映射为圆桌 API 消息：他人 assistant → user 带标签
+ * 将仓库消息映射为圆桌 MessageDTO：他人 assistant → user 带 [名字] 前缀；
+ * 过滤掉所有 role==='tool' 与 assistant.toolCalls（圆桌不共享工具轨迹）
  */
-export function mapGroupHistoryToApiMessages(
+export function mapGroupHistoryToAgentMessages(
   raw: MessageDTO[],
   currentPersonaId: string,
   personaDisplayNames: Record<string, string>
-): ChatMessage[] {
-  const out: ChatMessage[] = [];
+): MessageDTO[] {
+  const out: MessageDTO[] = [];
   for (const msg of raw) {
+    if (msg.role === 'tool') continue;
     if (msg.role === 'user') {
-      out.push({ role: 'user', content: `[观众]：${msg.content}` });
+      out.push({
+        role: 'user',
+        content: `[观众]：${msg.content}`,
+        timestamp: msg.timestamp,
+      });
     } else if (msg.role === 'assistant') {
       const pid = msg.personaId ?? '';
       if (pid === currentPersonaId) {
-        out.push({ role: 'assistant', content: msg.content });
+        // 当前 persona 的历史回复保留为 assistant，但去掉 toolCalls（圆桌中不回放工具）
+        if (!msg.content.trim()) continue;
+        out.push({
+          role: 'assistant',
+          content: msg.content,
+          timestamp: msg.timestamp,
+          personaId: pid,
+        });
       } else {
         const label = (personaDisplayNames[pid] ?? pid) || '其他参与者';
-        out.push({ role: 'user', content: `[${label}]：${msg.content}` });
+        if (!msg.content.trim()) continue;
+        out.push({
+          role: 'user',
+          content: `[${label}]：${msg.content}`,
+          timestamp: msg.timestamp,
+        });
       }
     }
   }
@@ -119,7 +129,7 @@ export function mapGroupHistoryToApiMessages(
 }
 
 /**
- * 时间窗内最后一条用户消息（用于讨论焦点）
+ * 时间窗内最后一条用户消息
  */
 export function getLastUserMessageContent(messages: MessageDTO[]): string {
   for (let i = messages.length - 1; i >= 0; i--) {
@@ -130,7 +140,10 @@ export function getLastUserMessageContent(messages: MessageDTO[]): string {
   return '';
 }
 
-function buildRoundtableSystemAppend(personaName: string, otherPersonaNames: string): string {
+function buildRoundtableSystemAppend(
+  personaName: string,
+  otherPersonaNames: string
+): string {
   return `
 
 [系统场景说明]
@@ -149,8 +162,6 @@ export class ContextBuilderService {
 
   /**
    * 为单聊构建上下文
-   * @param chat - 会话
-   * @returns 上下文
    */
   async buildForChat(chat: Chat): Promise<Context> {
     const personaId = chat.personaIds[0];
@@ -158,28 +169,21 @@ export class ContextBuilderService {
   }
 
   /**
-   * 为群聊构建上下文（原始 DTO，与单聊共用逻辑；圆桌请求请用 buildGroupRoundContext）
-   * @param chat - 会话
-   * @param currentPersonaId - 当前发言的人格 ID
-   * @returns 上下文
+   * 为群聊构建上下文（原始 DTO）
    */
   async buildForGroup(chat: Chat, currentPersonaId: string): Promise<Context> {
     return this.buildContext(chat.id, currentPersonaId);
   }
 
   /**
-   * 构建群聊单轮「圆桌」API 上下文：角色重映射 + system + finalInstruction
-   * @param chat - 群聊会话
-   * @param currentPersonaId - 当前轮次发言的人格 ID
-   * @param speakerOrderIndex - 本轮内顺序下标（0 起）
-   * @param personaDisplayNames - 人格 id → 显示名（通常由通讯录 scan 一次得到）
+   * 构建群聊单轮「圆桌」Agent 上下文
    */
   async buildGroupRoundContext(
     chat: Chat,
     currentPersonaId: string,
     speakerOrderIndex: number,
     personaDisplayNames: Record<string, string>
-  ): Promise<GroupRoundApiContext> {
+  ): Promise<GroupRoundContext> {
     const rawMessages = await this.buildMessageContext(chat.id);
     const skill = this.options.includeSkill
       ? await this.personaRepo.getSkillContent(currentPersonaId)
@@ -192,34 +196,48 @@ export class ContextBuilderService {
 
     const system = skill + buildRoundtableSystemAppend(personaName, otherNames);
 
-    const mapped = mapGroupHistoryToApiMessages(rawMessages, currentPersonaId, personaDisplayNames);
+    const mapped = mapGroupHistoryToAgentMessages(
+      rawMessages,
+      currentPersonaId,
+      personaDisplayNames
+    );
     const userQuestion = getLastUserMessageContent(rawMessages);
-    const prevId = speakerOrderIndex > 0 ? chat.personaIds[speakerOrderIndex - 1] : null;
-    const prevName = prevId ? personaDisplayNames[prevId] ?? prevId : null;
-    const finalInstruction = buildFinalInstruction(speakerOrderIndex, userQuestion, prevName);
+    const prevId =
+      speakerOrderIndex > 0 ? chat.personaIds[speakerOrderIndex - 1] : null;
+    const prevName = prevId
+      ? personaDisplayNames[prevId] ?? prevId
+      : null;
+    const finalInstruction = buildFinalInstruction(
+      speakerOrderIndex,
+      userQuestion,
+      prevName
+    );
 
     return {
-      messages: [...mapped, { role: 'user', content: finalInstruction }],
+      messages: [
+        ...mapped,
+        {
+          role: 'user',
+          content: finalInstruction,
+          timestamp: isoNow(),
+        },
+      ],
       system,
     };
   }
 
-  /**
-   * 内部方法：构建上下文
-   */
   private async buildContext(chatId: string, personaId: string): Promise<Context> {
     const [messages, memory, skill] = await Promise.all([
       this.buildMessageContext(chatId),
       this.options.includeMemory ? this.chatRepo.getMemory(chatId) : Promise.resolve(''),
-      this.options.includeSkill ? this.personaRepo.getSkillContent(personaId) : Promise.resolve(''),
+      this.options.includeSkill
+        ? this.personaRepo.getSkillContent(personaId)
+        : Promise.resolve(''),
     ]);
 
     return { messages, memory, skill };
   }
 
-  /**
-   * 构建消息上下文（30 分钟时间窗口）
-   */
   private async buildMessageContext(chatId: string): Promise<MessageDTO[]> {
     const allMessages = await this.chatRepo.getMessages(chatId);
     const cutoff = new Date(Date.now() - this.options.timeWindowMinutes * 60 * 1000);
@@ -230,9 +248,6 @@ export class ContextBuilderService {
     });
   }
 
-  /**
-   * 更新选项
-   */
   updateOptions(options: Partial<ContextOptions>): void {
     Object.assign(this.options, options);
   }

@@ -24,3 +24,17 @@ log = "0.4"
 tauri = { version = "2.10.3", features = [] }
 tauri-plugin-dialog = "2"
 tauri-plugin-log = "2"
+
+# Agent 网络 / 文件 / 命令执行所需依赖
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "gzip"] }
+scraper = "0.20"
+html2md = "0.2"
+ignore = "0.4"
+regex = "1.11"
+sha2 = "0.10"
+url = "2.5"
+urlencoding = "2.1"
+tokio = { version = "1", features = ["process", "time", "io-util", "rt-multi-thread", "macros"] }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }

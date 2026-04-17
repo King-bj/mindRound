@@ -1,14 +1,18 @@
 /**
  * 聊天服务
- * @description 核心业务逻辑，处理消息发送、群聊编排等
+ * @description 核心业务：用户发消息 → Agent Loop（含工具调用）→ 持久化 + 流式通知 UI；
+ * 群聊按 personaIds 顺序让每位成员各走一次 Agent。
  */
-import type { Chat } from '../domain/Chat';
-import { createUserMessage, createAssistantMessage, type Message } from '../domain/Message';
-import type { MessageDTO } from '../domain/Chat';
+import type { Chat, MessageDTO } from '../domain/Chat';
 import type { IChatRepository } from '../repositories/IChatRepository';
-import type { IApiRepository, ChatRequest } from '../repositories/IApiRepository';
+import type {
+  IApiRepository,
+  ChatMessage,
+} from '../repositories/IApiRepository';
 import type { IPersonaRepository } from '../repositories/IPersonaRepository';
 import type { ContextBuilderService } from './ContextBuilderService';
+import type { Agent } from '../agent/Agent';
+import type { AgentInput } from '../agent/types';
 import { MEMORY_IDLE_THRESHOLD_MS } from '../utils/constants';
 import { timestamp } from '../utils';
 
@@ -35,59 +39,13 @@ export interface MessageUpdateEvent {
  * 聊天服务接口
  */
 export interface IChatService {
-  /**
-   * 发送消息
-   * @param chatId - 会话 ID
-   * @param content - 消息内容
-   */
   sendMessage(chatId: string, content: string): Promise<void>;
-
-  /**
-   * 创建单聊
-   * @param personaId - 人格 ID
-   * @returns 创建的会话
-   */
   createSingleChat(personaId: string): Promise<Chat>;
-
-  /**
-   * 创建群聊
-   * @param title - 群聊标题
-   * @param personaIds - 参与的人格 ID 列表
-   * @returns 创建的会话
-   */
   createGroupChat(title: string, personaIds: string[]): Promise<Chat>;
-
-  /**
-   * 获取会话历史
-   * @param chatId - 会话 ID
-   * @returns 消息列表
-   */
   getHistory(chatId: string): Promise<MessageDTO[]>;
-
-  /**
-   * 获取所有会话
-   * @returns 会话列表
-   */
   getChats(): Promise<Chat[]>;
-
-  /**
-   * 获取单个会话
-   * @param chatId - 会话 ID
-   * @returns 会话，不存在返回 null
-   */
   getChatById(chatId: string): Promise<Chat | null>;
-
-  /**
-   * 向群聊追加成员（去重，保持原有顺序在前）
-   * @param chatId - 会话 ID
-   * @param newPersonaIds - 要追加的人格 ID
-   * @returns 更新后的会话
-   */
   addPersonasToGroup(chatId: string, newPersonaIds: string[]): Promise<Chat>;
-
-  /**
-   * 消息更新事件（流式更新时触发）
-   */
   onMessageUpdate?: (event: MessageUpdateEvent) => void;
 }
 
@@ -96,15 +54,20 @@ export class ChatService implements IChatService {
     private chatRepo: IChatRepository,
     private apiRepo: IApiRepository,
     private contextBuilder: ContextBuilderService,
-    private personaRepo: IPersonaRepository
+    private personaRepo: IPersonaRepository,
+    private agent: Agent
   ) {}
 
+  onMessageUpdate?: (event: MessageUpdateEvent) => void;
+
   async sendMessage(chatId: string, content: string): Promise<void> {
-    const userMsg = createUserMessage(content);
-    const userDto = this.messageToDTO(userMsg);
-    await this.chatRepo.addMessage(chatId, userDto);
-    /** 立即推送到 UI，否则用户消息只存在仓库中，界面右侧不会出现自己的气泡 */
-    this.onMessageUpdate?.({ chatId, message: userDto, done: false });
+    const userMsg: MessageDTO = {
+      role: 'user',
+      content,
+      timestamp: timestamp(),
+    };
+    await this.chatRepo.addMessage(chatId, userMsg);
+    this.onMessageUpdate?.({ chatId, message: userMsg, done: false });
 
     const chat = await this.chatRepo.findById(chatId);
     if (!chat) {
@@ -112,14 +75,11 @@ export class ChatService implements IChatService {
     }
 
     if (chat.type === 'single') {
-      const context = await this.contextBuilder.buildForChat(chat);
-      const request = this.buildApiRequest(context);
-      await this.streamAssistantReply(chatId, request, chat.personaIds[0]);
+      await this.runSingleChatTurn(chat);
     } else {
       await this.runGroupChat(chat);
     }
 
-    // 异步更新记忆，不阻塞主流程
     this.updateMemory(chat).catch((err) => {
       console.error('Memory update failed:', err);
     });
@@ -136,7 +96,6 @@ export class ChatService implements IChatService {
     if (existingSingle) {
       return existingSingle;
     }
-
     const now = timestamp();
     return this.chatRepo.create({
       type: 'single',
@@ -152,7 +111,6 @@ export class ChatService implements IChatService {
     if (personaIds.length < 2) {
       throw new Error('Group chat requires at least 2 personas');
     }
-
     const now = timestamp();
     return this.chatRepo.create({
       type: 'group',
@@ -202,39 +160,24 @@ export class ChatService implements IChatService {
     return updated;
   }
 
-  onMessageUpdate?: (event: MessageUpdateEvent) => void;
+  // ================= private =================
 
-  private async streamAssistantReply(
-    chatId: string,
-    request: ChatRequest,
-    personaId: string
-  ): Promise<void> {
-    const assistantMsg = createAssistantMessage('', personaId);
-    let fullContent = '';
+  private async runSingleChatTurn(chat: Chat): Promise<void> {
+    const context = await this.contextBuilder.buildForChat(chat);
+    const systemWithMemory =
+      context.memory.trim().length > 0
+        ? `${context.skill}\n\n[长期记忆]\n${context.memory}`
+        : context.skill;
 
-    for await (const chunk of this.apiRepo.chat(request)) {
-      fullContent += chunk;
-      assistantMsg.content = fullContent;
-
-      this.onMessageUpdate?.({
-        chatId,
-        message: this.messageToDTO(assistantMsg),
-        done: false,
-      });
-    }
-
-    await this.chatRepo.addMessage(chatId, this.messageToDTO(assistantMsg));
-
-    this.onMessageUpdate?.({
-      chatId,
-      message: this.messageToDTO(assistantMsg),
-      done: true,
-    });
+    const input: AgentInput = {
+      system: systemWithMemory,
+      messages: context.messages,
+      chatId: chat.id,
+      personaId: chat.personaIds[0],
+    };
+    await this.runAgent(chat.id, input);
   }
 
-  /**
-   * 用户每条消息后，按 personaIds 顺序依次让每位成员各回复一轮（圆桌上下文）
-   */
   private async runGroupChat(chat: Chat): Promise<void> {
     const personas = await this.personaRepo.scan();
     const personaDisplayNames: Record<string, string> = Object.fromEntries(
@@ -249,14 +192,129 @@ export class ChatService implements IChatService {
         i,
         personaDisplayNames
       );
-      const request: ChatRequest = {
-        messages: ctx.messages,
+      const input: AgentInput = {
         system: ctx.system,
-        stream: true,
+        messages: ctx.messages,
+        chatId: chat.id,
+        personaId,
       };
-
-      await this.streamAssistantReply(chat.id, request, personaId);
+      await this.runAgent(chat.id, input);
       await this.chatRepo.updateSpeakerIndex(chat.id, i);
+    }
+  }
+
+  /**
+   * 消费 Agent 流式事件：
+   * - 对 assistant 文本，边流边推送给 UI（done=false）
+   * - 完整的 assistant / tool 消息在 agent 产生 message_done 时写入仓库与 UI
+   */
+  private async runAgent(chatId: string, input: AgentInput): Promise<void> {
+    let currentAssistant: MessageDTO | null = null;
+
+    for await (const ev of this.agent.run(input)) {
+      switch (ev.type) {
+        case 'text_delta': {
+          if (!currentAssistant) {
+            currentAssistant = {
+              role: 'assistant',
+              content: '',
+              timestamp: timestamp(),
+              personaId: input.personaId,
+            };
+          }
+          currentAssistant.content += ev.text;
+          this.onMessageUpdate?.({
+            chatId,
+            message: currentAssistant,
+            done: false,
+          });
+          break;
+        }
+        case 'tool_call_start': {
+          if (!currentAssistant) {
+            currentAssistant = {
+              role: 'assistant',
+              content: '',
+              timestamp: timestamp(),
+              personaId: input.personaId,
+              toolCalls: [],
+            };
+          }
+          const calls = [...(currentAssistant.toolCalls ?? [])];
+          const existing = calls[ev.index] ?? {
+            id: '',
+            name: '',
+            arguments: '',
+          };
+          calls[ev.index] = {
+            ...existing,
+            name: ev.name ?? existing.name,
+          };
+          currentAssistant.toolCalls = calls;
+          this.onMessageUpdate?.({ chatId, message: currentAssistant, done: false });
+          break;
+        }
+        case 'tool_call_arguments_delta': {
+          if (!currentAssistant) {
+            currentAssistant = {
+              role: 'assistant',
+              content: '',
+              timestamp: timestamp(),
+              personaId: input.personaId,
+              toolCalls: [],
+            };
+          }
+          const calls = [...(currentAssistant.toolCalls ?? [])];
+          const existing = calls[ev.index] ?? {
+            id: '',
+            name: '',
+            arguments: '',
+          };
+          calls[ev.index] = {
+            ...existing,
+            arguments: (existing.arguments ?? '') + ev.argumentsDelta,
+          };
+          currentAssistant.toolCalls = calls;
+          this.onMessageUpdate?.({ chatId, message: currentAssistant, done: false });
+          break;
+        }
+        case 'message_done': {
+          const msg = ev.message;
+          await this.chatRepo.addMessage(chatId, msg);
+          this.onMessageUpdate?.({ chatId, message: msg, done: true });
+          if (msg.role === 'assistant') {
+            currentAssistant = null;
+          }
+          break;
+        }
+        case 'tool_executed':
+          // 仅 UI 提示（缓存命中标记），实际 message 仍从 message_done 走
+          break;
+        case 'max_iterations_reached': {
+          const msg: MessageDTO = {
+            role: 'assistant',
+            content: '[Agent 达到最大迭代次数，已停止]',
+            timestamp: timestamp(),
+            personaId: input.personaId,
+          };
+          await this.chatRepo.addMessage(chatId, msg);
+          this.onMessageUpdate?.({ chatId, message: msg, done: true });
+          break;
+        }
+        case 'error': {
+          const msg: MessageDTO = {
+            role: 'assistant',
+            content: `[Agent 错误：${ev.error}]`,
+            timestamp: timestamp(),
+            personaId: input.personaId,
+          };
+          await this.chatRepo.addMessage(chatId, msg);
+          this.onMessageUpdate?.({ chatId, message: msg, done: true });
+          break;
+        }
+        default:
+          break;
+      }
     }
   }
 
@@ -266,7 +324,6 @@ export class ChatService implements IChatService {
 
     const lastMsgTime = new Date(messages[messages.length - 1].timestamp);
     const now = new Date();
-
     if (now.getTime() - lastMsgTime.getTime() < MEMORY_IDLE_THRESHOLD_MS) {
       return;
     }
@@ -276,35 +333,36 @@ export class ChatService implements IChatService {
     await this.chatRepo.updateMemory(chat.id, summary);
   }
 
-  private async summarizeMessages(messages: MessageDTO[], currentMemory: string): Promise<string> {
-    const conversation = messages.map((m) => `${m.role}: ${m.content}`).join('\n');
+  /**
+   * 记忆摘要：把 tool 消息过滤掉；assistant.toolCalls 降维为占位文本
+   */
+  private async summarizeMessages(
+    messages: MessageDTO[],
+    currentMemory: string
+  ): Promise<string> {
+    const conversation = messages
+      .map((m) => {
+        if (m.role === 'tool') return null;
+        if (m.role === 'assistant') {
+          const toolNote =
+            m.toolCalls && m.toolCalls.length > 0
+              ? `[调用工具: ${m.toolCalls.map((t) => t.name).join(', ')}] `
+              : '';
+          return `assistant: ${toolNote}${m.content}`;
+        }
+        return `user: ${m.content}`;
+      })
+      .filter((x): x is string => !!x)
+      .join('\n');
 
     const prompt = MEMORY_SUMMARIZER_PROMPT
       .replace('{memory}', currentMemory)
       .replace('{conversation}', conversation);
 
-    return this.apiRepo.chatComplete({
-      messages: [{ role: 'user', content: prompt }],
-    });
-  }
+    const apiMessages: ChatMessage[] = [
+      { role: 'user', content: prompt },
+    ];
 
-  private buildApiRequest(context: { messages: MessageDTO[]; skill: string }): ChatRequest {
-    return {
-      messages: context.messages.map((m) => ({
-        role: m.role as 'user' | 'assistant',
-        content: m.content,
-      })),
-      system: context.skill,
-      stream: true,
-    };
-  }
-
-  private messageToDTO(msg: Message): MessageDTO {
-    return {
-      role: msg.role,
-      content: msg.content,
-      timestamp: msg.timestamp,
-      personaId: msg.personaId,
-    };
+    return this.apiRepo.chatComplete({ messages: apiMessages });
   }
 }

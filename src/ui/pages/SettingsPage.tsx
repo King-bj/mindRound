@@ -84,9 +84,31 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
     }
   };
 
-  const handleChange = (field: keyof AppConfig, value: string) => {
+  const handleChange = <K extends keyof AppConfig>(field: K, value: AppConfig[K]) => {
     if (!formData) return;
     setFormData((prev) => (prev ? { ...prev, [field]: value } : null));
+  };
+
+  const handleAddSandboxFolder = async () => {
+    try {
+      const picked = await platformAdapter.pickFolder();
+      if (!picked || !formData) return;
+      if (formData.sandboxFolders.includes(picked)) return;
+      setFormData({
+        ...formData,
+        sandboxFolders: [...formData.sandboxFolders, picked],
+      });
+    } catch (err) {
+      setSaveMessage('选择目录失败: ' + (err as Error).message);
+    }
+  };
+
+  const handleRemoveSandboxFolder = (path: string) => {
+    if (!formData) return;
+    setFormData({
+      ...formData,
+      sandboxFolders: formData.sandboxFolders.filter((p) => p !== path),
+    });
   };
 
   if (!formData) {
@@ -176,6 +198,82 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                 title="在资源管理器中打开"
               >
                 📁
+              </button>
+            </div>
+          </div>
+        </section>
+
+        <section className="settings-section">
+          <h2 className="section-title">Agent · 搜索引擎</h2>
+
+          <div className="form-group">
+            <label className="form-label">提供者</label>
+            <select
+              className="form-input"
+              value={formData.searchProvider}
+              onChange={(e) =>
+                handleChange(
+                  'searchProvider',
+                  e.target.value as AppConfig['searchProvider']
+                )
+              }
+            >
+              <option value="ddg">DuckDuckGo（免 Key）</option>
+              <option value="tavily">Tavily（需 API Key）</option>
+              <option value="serper">Serper（需 API Key）</option>
+            </select>
+          </div>
+
+          {formData.searchProvider !== 'ddg' && (
+            <div className="form-group">
+              <label className="form-label">搜索 API Key</label>
+              <input
+                type="password"
+                className="form-input"
+                value={formData.searchApiKey}
+                onChange={(e) => handleChange('searchApiKey', e.target.value)}
+                placeholder={
+                  formData.searchProvider === 'tavily' ? 'tvly-...' : '您的 Serper API Key'
+                }
+              />
+            </div>
+          )}
+        </section>
+
+        <section className="settings-section">
+          <h2 className="section-title">Agent · 工作沙箱</h2>
+          <p className="form-label" style={{ color: '#6b7280', marginBottom: 8 }}>
+            读取这些目录内的文件时不会弹窗确认。数据目录已默认纳入沙箱。
+          </p>
+
+          <div className="form-group">
+            <div className="sandbox-folders">
+              {formData.sandboxFolders.length === 0 && (
+                <div style={{ fontSize: 13, color: '#9ca3af' }}>（未添加）</div>
+              )}
+              {formData.sandboxFolders.map((p) => (
+                <div key={p} className="sandbox-folder-row">
+                  <span className="path" title={p}>
+                    {p}
+                  </span>
+                  <button
+                    type="button"
+                    className="remove"
+                    onClick={() => handleRemoveSandboxFolder(p)}
+                    aria-label={`移除 ${p}`}
+                  >
+                    ×
+                  </button>
+                </div>
+              ))}
+            </div>
+            <div className="sandbox-actions" style={{ marginTop: 8 }}>
+              <button
+                type="button"
+                className="sandbox-add-btn"
+                onClick={handleAddSandboxFolder}
+              >
+                + 添加工作目录
               </button>
             </div>
           </div>

@@ -31,6 +31,10 @@ export const SessionsPage: React.FC<SessionsPageProps> = ({
   const [isLoading, setIsLoading] = useState(false);
   const [personaNames, setPersonaNames] = useState<Record<string, string>>({});
 
+  // 这两个回调当前由父层 header 承载交互，保留在 props 中以维持组件接口稳定。
+  void onCreateGroup;
+  void onContacts;
+
   const loadChats = useCallback(async () => {
     setIsLoading(true);
     try {

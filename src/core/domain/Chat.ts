@@ -39,6 +39,25 @@ export interface ChatMeta {
 }
 
 /**
+ * 消息角色
+ * @description user / assistant 是传统对话；tool 是工具执行结果
+ */
+export type MessageRole = 'user' | 'assistant' | 'tool';
+
+/**
+ * OpenAI 线格式的工具调用
+ * @description arguments 是 JSON 字符串（由模型生成，可能不合法）
+ */
+export interface ToolCall {
+  /** OpenAI 分配的调用 ID，用于匹配 tool 结果 */
+  id: string;
+  /** 函数名 */
+  name: string;
+  /** JSON 字符串形式的入参 */
+  arguments: string;
+}
+
+/**
  * 消息历史（用于持久化）
  */
 export interface MessagesData {
@@ -46,13 +65,26 @@ export interface MessagesData {
 }
 
 /**
- * 消息 DTO（用于持久化）
+ * 消息 DTO（OpenAI 线格式，直接持久化）
+ * @description 一个 MessageDTO 对应 OpenAI API 的一条消息
  */
 export interface MessageDTO {
-  role: 'user' | 'assistant';
+  /** 消息角色 */
+  role: MessageRole;
+  /** 消息内容（assistant 纯 tool_calls 时为空串，tool 为执行结果文本） */
   content: string;
+  /** ISO 时间戳 */
   timestamp: string;
+  /** assistant 消息所属人格 ID */
   personaId?: string;
+  /** assistant 消息产生的工具调用（含则表示本轮想调工具） */
+  toolCalls?: ToolCall[];
+  /** tool 消息回应的工具调用 ID（对应 OpenAI 协议 tool_call_id） */
+  toolCallId?: string;
+  /** tool 消息的工具名（冗余，方便 UI 展示） */
+  name?: string;
+  /** 工具结果是否来自缓存（仅 UI 展示用，不随 API 发送） */
+  cached?: boolean;
 }
 
 /**
@@ -106,4 +138,3 @@ export function chatToMeta(chat: Chat): ChatMeta {
     createdAt: chat.createdAt,
   };
 }
-

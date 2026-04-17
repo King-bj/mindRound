@@ -1,10 +1,12 @@
 mod commands;
 
 use commands::{
-    add_message, create_chat, create_dir, delete_file, file_exists, get_chat, get_config,
-    get_data_dir_command, get_memory, get_messages, get_persona_skill, get_settings_file_path,
-    import_persona_skill, init_builtin_personas, list_dir, migrate_user_data, open_folder,
-    read_file, scan_personas, update_config, update_memory, write_file,
+    add_message, agent_execute_command, agent_read_file, agent_search_file, agent_update_file,
+    agent_web_fetch, agent_web_search, agent_write_file, create_chat, create_dir, delete_file,
+    file_exists, get_chat, get_config, get_data_dir_command, get_memory, get_messages,
+    get_persona_skill, get_settings_file_path, import_persona_skill, init_builtin_personas,
+    list_dir, migrate_user_data, open_folder, read_file, scan_personas, update_config,
+    update_memory, write_file,
 };
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -53,6 +55,14 @@ pub fn run() {
             create_dir,
             delete_file,
             list_dir,
+            // Agent tool commands
+            agent_web_search,
+            agent_web_fetch,
+            agent_read_file,
+            agent_write_file,
+            agent_update_file,
+            agent_search_file,
+            agent_execute_command,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

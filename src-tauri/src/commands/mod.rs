@@ -1,11 +1,19 @@
 pub mod chat;
 pub mod config;
+pub mod exec;
+pub mod fetch;
+pub mod fs;
 pub mod paths;
 pub mod persona;
 pub mod platform;
+pub mod search;
 
 pub use chat::*;
 pub use config::*;
+pub use exec::*;
+pub use fetch::*;
+pub use fs::*;
 pub use paths::*;
 pub use persona::*;
 pub use platform::*;
+pub use search::*;

@@ -9,6 +9,7 @@ import { ChatPage } from './ui/pages/ChatPage';
 import { SettingsPage } from './ui/pages/SettingsPage';
 import { CreateGroupPage } from './ui/pages/CreateGroupPage';
 import { MessageCircle, Users, Settings, Plus, Search } from './ui/components/Icons';
+import { PermissionConfirmDialog } from './ui/components/PermissionConfirmDialog';
 import { createPlatformAdapter } from './core/infrastructure/platforms';
 import { FileChatRepository } from './core/infrastructure/repositories/FileChatRepository';
 import { FilePersonaRepository } from './core/infrastructure/repositories/FilePersonaRepository';
@@ -17,6 +18,15 @@ import { HttpApiRepository } from './core/infrastructure/repositories/HttpApiRep
 import { ChatService } from './core/services/ChatService';
 import { ContextBuilderService } from './core/services/ContextBuilderService';
 import { PersonaService } from './core/services/PersonaService';
+import { Agent } from './core/agent/Agent';
+import { createDefaultRegistry } from './core/agent/tools/registry';
+import {
+  PermissionService,
+  type PermissionPrompt,
+  type PermissionDecision,
+} from './core/agent/PermissionService';
+import { ToolResultCache } from './core/agent/ToolResultCache';
+import type { ToolRunContext } from './core/agent/types';
 import { createChatStore } from './ui/stores/chatStore';
 import './App.css';
 
@@ -86,6 +96,11 @@ function App() {
   const [currentChatId, setCurrentChatId] = useState<string | null>(null);
   const [showCreateGroup, setShowCreateGroup] = useState(false);
   const [platform, setPlatform] = useState<'desktop' | 'android'>('desktop');
+  const [permissionPrompt, setPermissionPrompt] =
+    useState<PermissionPrompt | null>(null);
+  const [permissionResolver, setPermissionResolver] = useState<
+    ((d: PermissionDecision) => void) | null
+  >(null);
 
   // 检测平台
   useEffect(() => {
@@ -107,12 +122,76 @@ function App() {
     () => new ContextBuilderService(chatRepo, personaRepo),
     [chatRepo, personaRepo]
   );
+
+  // ===== Agent 组件装配 =====
+  const permissionService = useMemo(() => {
+    const svc = new PermissionService(async () => {
+      // sandbox 根：数据目录 + 用户额外配置的工作目录
+      const dataDir = await platformAdapter.getDataDir();
+      try {
+        const cfg = await configRepo.get();
+        const extras = Array.isArray(cfg.sandboxFolders) ? cfg.sandboxFolders : [];
+        return [dataDir, ...extras.filter((p) => p && p.trim().length > 0)];
+      } catch {
+        return [dataDir];
+      }
+    });
+    svc.confirmHandler = (prompt) =>
+      new Promise<PermissionDecision>((resolve) => {
+        setPermissionPrompt(prompt);
+        setPermissionResolver(() => resolve);
+      });
+    return svc;
+  }, [configRepo, platformAdapter]);
+
+  const toolResultCache = useMemo(
+    () => new ToolResultCache(platformAdapter),
+    [platformAdapter]
+  );
+
+  const toolRegistry = useMemo(() => createDefaultRegistry(), []);
+
+  const agent = useMemo(
+    () =>
+      new Agent({
+        api: apiRepo,
+        registry: toolRegistry,
+        permission: permissionService,
+        cache: toolResultCache,
+        async getBaseToolContext(): Promise<Omit<ToolRunContext, 'allowOutsideSandbox'>> {
+          const dataDir = await platformAdapter.getDataDir();
+          let sandboxRoots: string[] = [dataDir];
+          let searchProvider: ToolRunContext['searchProvider'] = 'ddg';
+          let searchApiKey = '';
+          try {
+            const cfg = await configRepo.get();
+            const extras = Array.isArray(cfg.sandboxFolders) ? cfg.sandboxFolders : [];
+            sandboxRoots = [dataDir, ...extras.filter((p) => p && p.trim().length > 0)];
+            searchProvider = cfg.searchProvider ?? 'ddg';
+            searchApiKey = cfg.searchApiKey ?? '';
+          } catch {
+            // 默认沙箱与 DDG 不需要 key
+          }
+          return { sandboxRoots, searchProvider, searchApiKey };
+        },
+      }),
+    [apiRepo, toolRegistry, permissionService, toolResultCache, configRepo, platformAdapter]
+  );
+
   const chatService = useMemo(
-    () => new ChatService(chatRepo, apiRepo, contextBuilder, personaRepo),
-    [chatRepo, apiRepo, contextBuilder, personaRepo]
+    () => new ChatService(chatRepo, apiRepo, contextBuilder, personaRepo, agent),
+    [chatRepo, apiRepo, contextBuilder, personaRepo, agent]
   );
   const personaService = useMemo(() => new PersonaService(personaRepo), [personaRepo]);
   const chatStore = useMemo(() => createChatStore(chatService), [chatService]);
+
+  const handlePermissionDecide = (decision: PermissionDecision) => {
+    if (permissionResolver) {
+      permissionResolver(decision);
+    }
+    setPermissionPrompt(null);
+    setPermissionResolver(null);
+  };
 
   useEffect(() => {
     chatStore.getState().loadChats();
@@ -144,6 +223,13 @@ function App() {
     navigateToChat(chatId);
   };
 
+  const permissionDialog = (
+    <PermissionConfirmDialog
+      prompt={permissionPrompt}
+      onDecide={handlePermissionDecide}
+    />
+  );
+
   // 移动端：选中会话后全屏进入聊天（桌面端在「对话」分栏内展示，见下方 chats-split）
   if (currentChatId && platform === 'android') {
     return (
@@ -154,6 +240,7 @@ function App() {
           personaRepository={personaRepo}
           onBack={() => setCurrentChatId(null)}
         />
+        {permissionDialog}
       </div>
     );
   }
@@ -168,6 +255,7 @@ function App() {
           onCreated={handleGroupCreated}
           onBack={() => setShowCreateGroup(false)}
         />
+        {permissionDialog}
       </div>
     );
   }
@@ -311,6 +399,8 @@ function App() {
           </div>
         )}
       </main>
+
+      {permissionDialog}
     </div>
   );
 }

@@ -15,6 +15,12 @@ export interface AppConfig {
   model: string;
   /** 数据目录路径 */
   dataDir: string;
+  /** 搜索引擎（Agent 工具） */
+  searchProvider: 'ddg' | 'tavily' | 'serper';
+  /** 搜索引擎 API Key（DDG 不需要） */
+  searchApiKey: string;
+  /** 用户额外添加的 sandbox 工作目录（自动包含 dataDir） */
+  sandboxFolders: string[];
 }
 
 /**
@@ -25,6 +31,9 @@ export const DEFAULT_CONFIG: AppConfig = {
   apiKey: '',
   model: 'gpt-4o',
   dataDir: '',
+  searchProvider: 'ddg',
+  searchApiKey: '',
+  sandboxFolders: [],
 };
 
 export interface IConfigRepository {
