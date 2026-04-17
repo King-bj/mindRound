@@ -1,10 +1,11 @@
 mod commands;
 
 use commands::{
-    add_message, create_chat, create_dir, delete_file, file_exists, get_chat, get_config,
-    get_data_dir_command, get_memory, get_messages, get_persona_skill, get_settings_file_path,
-    import_persona_skill, init_builtin_personas, list_dir, migrate_user_data, open_folder,
-    read_file, scan_personas, update_config, update_memory, write_file,
+    add_message, create_chat, create_dir, delete_file, ensure_default_config_files, file_exists,
+    get_chat, get_config, get_data_dir_command, get_memory, get_messages, get_persona_skill,
+    get_settings_file_path, import_persona_skill, init_builtin_personas, list_dir,
+    migrate_user_data, open_folder, read_file, scan_personas,
+    update_config, update_memory, write_file,
 };
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -19,7 +20,10 @@ pub fn run() {
                         .build(),
                 )?;
             }
-            // 首次运行时初始化内置 persona 数据
+            if let Err(e) = ensure_default_config_files(app.handle()) {
+                log::error!("Failed to ensure default config files: {}", e);
+            }
+            // 补全内置人物与索引（安装程序可能已把 bundle-data 复制到 data/）
             if let Err(e) = init_builtin_personas(app.handle()) {
                 log::error!("Failed to initialize built-in personas: {}", e);
             } else {

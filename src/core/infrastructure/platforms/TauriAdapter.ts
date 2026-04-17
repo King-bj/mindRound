@@ -3,6 +3,7 @@
  * @description 通过 Tauri invoke 调用 Rust 命令实现平台特定操作
  */
 import { open } from '@tauri-apps/plugin-dialog';
+import type { AppConfig } from '../../repositories/IConfigRepository';
 import type { IPlatformAdapter, FilePickerOptions } from './IPlatformAdapter';
 import { MockAdapter } from './MockAdapter';
 
@@ -57,6 +58,14 @@ export class TauriAdapter implements IPlatformAdapter {
     return this.invoke<string>('get_settings_file_path');
   }
 
+  async loadAppConfig(): Promise<AppConfig> {
+    return this.invoke<AppConfig>('get_config');
+  }
+
+  async saveAppConfig(config: AppConfig): Promise<void> {
+    await this.invoke('update_config', { config });
+  }
+
   async pickFolder(): Promise<string | null> {
     if (!isTauriEnvironment()) {
       return null;
@@ -93,7 +102,6 @@ export class TauriAdapter implements IPlatformAdapter {
     if (!isTauriEnvironment()) {
       return null;
     }
-    const { open } = await import('@tauri-apps/plugin-dialog');
     const result = await open({
       multiple: false,
       directory: options?.directory ?? false,

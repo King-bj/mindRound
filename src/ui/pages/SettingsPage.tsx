@@ -44,9 +44,11 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
   };
 
   const handleOpenDataDir = async () => {
-    const path = formData?.dataDir?.trim();
-    if (!path) return;
     try {
+      let path = formData?.dataDir?.trim();
+      if (!path) {
+        path = await platformAdapter.getDataDir();
+      }
       await platformAdapter.openFolder(path);
     } catch (err) {
       setSaveMessage('打开目录失败: ' + (err as Error).message);
@@ -96,8 +98,6 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
       </div>
     );
   }
-
-  const hasDataDir = !!formData.dataDir?.trim();
 
   return (
     <div className="settings-page">
@@ -149,6 +149,10 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
 
         <section className="settings-section">
           <h2 className="section-title">数据目录</h2>
+          <p className="settings-hint">
+            所有可写数据（配置、通讯录、聊天记录等）均在此目录下；留空则默认使用安装目录旁的 data
+            文件夹。仅当您要主动更换存储位置时填写或选择新路径，保存时可迁移已有数据。
+          </p>
 
           <div className="form-group">
             <label className="form-label">路径</label>
@@ -158,7 +162,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                 className="form-input"
                 value={formData.dataDir}
                 onChange={(e) => handleChange('dataDir', e.target.value)}
-                placeholder="留空则使用应用默认目录"
+                placeholder="留空则使用安装目录下的 data（加载后显示绝对路径）"
               />
               <button
                 type="button"
@@ -172,8 +176,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                 type="button"
                 className="icon-btn"
                 onClick={handleOpenDataDir}
-                disabled={!hasDataDir}
-                title="在资源管理器中打开"
+                title="在资源管理器中打开（路径为空时使用当前实际数据目录）"
               >
                 📁
               </button>

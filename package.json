@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
+    "stage-bundle-data": "node scripts/stage-bundle-data.mjs",
     "lint": "eslint .",
     "preview": "vite preview",
     "test": "vitest",

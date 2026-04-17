@@ -2,6 +2,8 @@
  * 平台适配器接口
  * @description 抽象平台特定操作，隔离平台差异
  */
+import type { AppConfig } from '../../repositories/IConfigRepository';
+
 export interface FilePickerOptions {
   /** 允许的文件类型 */
   filters?: { name: string; extensions: string[] }[];
@@ -20,6 +22,16 @@ export interface IPlatformAdapter {
    * `settings.json` 绝对路径（固定于应用数据目录，与内容根分离）
    */
   getSettingsFilePath(): Promise<string>;
+
+  /**
+   * 读取合并后的应用配置（Tauri：settings + credentials；Mock：内存双文件）
+   */
+  loadAppConfig(): Promise<AppConfig>;
+
+  /**
+   * 持久化完整配置（按平台规则写入，Tauri 会拆分 settings / credentials）
+   */
+  saveAppConfig(config: AppConfig): Promise<void>;
 
   /**
    * 原生文件夹选择对话框
