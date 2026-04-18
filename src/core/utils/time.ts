@@ -15,6 +15,26 @@ export function timestamp(): string {
  * @param timestamp - ISO 时间戳
  * @returns 相对时间字符串（如"今天14:23"、"昨天"、"3天前"）
  */
+/**
+ * 生成注入到 Agent system prompt 的「当前日期」说明（按 Asia/Shanghai，即 UTC+8）。
+ * @description 避免模型用训练数据里的过期年份构造 `web_search` 查询词。
+ * @param now - 可选基准时间（默认 `new Date()`），便于单测注入固定时刻
+ * @returns 一段中文系统指令，末尾无多余换行
+ */
+export function buildDateInstruction(now: Date = new Date()): string {
+  const dateStr = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Shanghai',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(now);
+
+  return (
+    `[当前日期]\n` +
+    `今天是 ${dateStr}（UTC+8）。涉及「最新 / 最近 / 现在」的查询，请围绕这个日期理解时间，不要使用过期年份。`
+  );
+}
+
 export function formatRelativeTime(timestamp: string): string {
   const date = new Date(timestamp);
   if (Number.isNaN(date.getTime())) {

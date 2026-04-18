@@ -1,13 +1,15 @@
 //! Agent 工具：web_search。
 //!
 //! 多引擎 fallback + 重试 + UA 随机化：
-//! - DDG 三端点轮询（html / www / lite），对单端点做 2 次指数退避重试
+//! - Bing 中国站（cn.bing.com）优先，国内网络更可达
+//! - DDG 三端点轮询（html / www / lite），对单端点做有限退避重试
 //! - 免 key 回退：Brave HTML、SearxNG 公共镜像池
-//! - Tavily / Serper（需 api_key）单独路径，失败后也降级到 DDG 链
+//! - Tavily / Serper（需 api_key）单独路径，失败后也降级到 Bing → DDG 链
+//! - 全链路 wall-clock 预算，超时不再串后续引擎
 //! - 有任何一个引擎返回 >=1 条即返回；全部失败才合并错误向上报
 use scraper::{ElementRef, Html, Selector};
 use serde::{Deserialize, Serialize};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 const USER_AGENTS: &[&str] = &[
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
@@ -17,8 +19,11 @@ const USER_AGENTS: &[&str] = &[
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7; rv:121.0) Gecko/20100101 Firefox/121.0",
 ];
 
-/// 每次请求之间的基础退避，重试次数
-const RETRY_DELAYS_MS: &[u64] = &[300, 900];
+/// 每次请求之间的退避；长度为 n 表示最多 n+1 次 HTTP 尝试
+const RETRY_DELAYS_MS: &[u64] = &[400];
+
+/// 全链路搜索 wall-clock 预算（毫秒），跑完一家后检查，超预算则不再尝试后续引擎
+const GLOBAL_BUDGET_MS: u64 = 18_000;
 
 /// SearxNG 公共镜像（若全部挂了，用户可在设置中换 provider）
 const SEARXNG_INSTANCES: &[&str] = &[
@@ -85,8 +90,9 @@ pub async fn agent_web_search(args: SearchArgs) -> Result<Vec<SearchResult>, Str
 
     let client = build_client()?;
     let mut errors: Vec<AttemptErr> = Vec::new();
+    let budget_start = Instant::now();
 
-    // 1) 先按指定 provider 执行（若有 key 用 key；否则 DDG）
+    // 1) 先按指定 provider 执行（若有 key 用 key）
     let ordered_primary = match provider.as_str() {
         "tavily" => {
             if let Some(k) = args.api_key.as_deref() {
@@ -118,11 +124,23 @@ pub async fn agent_web_search(args: SearchArgs) -> Result<Vec<SearchResult>, Str
             }
             true
         }
-        _ => false, // DDG 作为主路径在下面统一处理
+        _ => false,
     };
 
-    // 2) DDG 三端点轮询（作为默认主路径 / 付费 provider 的降级）
+    // 2) Bing 中国站（免 key，默认链首位 / 付费失败后的降级）
+    if within_search_budget(budget_start) {
+        match run_with_retry(|| search_bing(&client, &args.query, max)).await {
+            Ok(v) if !v.is_empty() => return Ok(v),
+            Ok(_) => errors.push(("Bing·cn".to_string(), EngineErr::Empty)),
+            Err(e) => errors.push(("Bing·cn".to_string(), e)),
+        }
+    }
+
+    // 3) DDG 三端点轮询
     for ep in ddg_endpoints() {
+        if !within_search_budget(budget_start) {
+            break;
+        }
         match run_with_retry(|| fetch_and_parse_ddg(&client, ep.url, ep.kind, &args.query, max))
             .await
         {
@@ -132,15 +150,20 @@ pub async fn agent_web_search(args: SearchArgs) -> Result<Vec<SearchResult>, Str
         }
     }
 
-    // 3) Brave HTML（免 key）
-    match run_with_retry(|| search_brave(&client, &args.query, max)).await {
-        Ok(v) if !v.is_empty() => return Ok(v),
-        Ok(_) => errors.push(("Brave".to_string(), EngineErr::Empty)),
-        Err(e) => errors.push(("Brave".to_string(), e)),
+    // 4) Brave HTML（免 key）
+    if within_search_budget(budget_start) {
+        match run_with_retry(|| search_brave(&client, &args.query, max)).await {
+            Ok(v) if !v.is_empty() => return Ok(v),
+            Ok(_) => errors.push(("Brave".to_string(), EngineErr::Empty)),
+            Err(e) => errors.push(("Brave".to_string(), e)),
+        }
     }
 
-    // 4) SearxNG 公共镜像池
+    // 5) SearxNG 公共镜像池
     for inst in SEARXNG_INSTANCES {
+        if !within_search_budget(budget_start) {
+            break;
+        }
         match run_with_retry(|| search_searxng(&client, inst, &args.query, max)).await {
             Ok(v) if !v.is_empty() => return Ok(v),
             Ok(_) => errors.push((format!("SearxNG·{}", short_host(inst)), EngineErr::Empty)),
@@ -148,7 +171,7 @@ pub async fn agent_web_search(args: SearchArgs) -> Result<Vec<SearchResult>, Str
         }
     }
 
-    let _ = ordered_primary; // 仅用于语义，忽略 warning
+    let _ = ordered_primary;
     Err(format_errors(&errors))
 }
 
@@ -157,9 +180,14 @@ pub async fn agent_web_search(args: SearchArgs) -> Result<Vec<SearchResult>, Str
 fn build_client() -> Result<reqwest::Client, String> {
     reqwest::Client::builder()
         .user_agent(pick_user_agent())
-        .timeout(Duration::from_secs(10))
+        .timeout(Duration::from_secs(6))
         .build()
         .map_err(|e| format!("client: {}", e))
+}
+
+#[inline]
+fn within_search_budget(start: Instant) -> bool {
+    start.elapsed() < Duration::from_millis(GLOBAL_BUDGET_MS)
 }
 
 /// 基于系统时间做一个便宜的"随机"选择（避免引入 rand 依赖）
@@ -220,14 +248,86 @@ fn format_errors(errors: &[AttemptErr]) -> String {
 
 /// 按 HTTP 状态码与 body 粗判"是否被限流/封禁"
 fn classify_status(status: reqwest::StatusCode, body_hint: &str) -> Option<EngineErr> {
-    if status.is_success() {
-        return None;
-    }
     let code = status.as_u16();
+    // 202 在 HTTP 语义上属 2xx，但 DDG 等常用 202 表示反爬/排队，须在 is_success 之前单独处理
     if code == 202 || code == 403 || code == 429 || code == 503 {
         return Some(EngineErr::RateLimited(format!("HTTP {}", code)));
     }
+    if status.is_success() {
+        return None;
+    }
     Some(EngineErr::Network(format!("HTTP {} {}", code, body_hint)))
+}
+
+// ============ Bing（中国站）============
+
+async fn search_bing(
+    client: &reqwest::Client,
+    query: &str,
+    max: usize,
+) -> Result<Vec<SearchResult>, EngineErr> {
+    let url = format!(
+        "https://cn.bing.com/search?q={}&ensearch=0",
+        urlencoding::encode(query)
+    );
+    let resp = client
+        .get(&url)
+        .header(reqwest::header::ACCEPT, "text/html,application/xhtml+xml")
+        .header(reqwest::header::COOKIE, "setmkt=zh-CN")
+        .send()
+        .await
+        .map_err(|e| EngineErr::Network(e.to_string()))?;
+    let status = resp.status();
+    let body = resp
+        .text()
+        .await
+        .map_err(|e| EngineErr::Network(e.to_string()))?;
+    if let Some(err) = classify_status(status, snippet_for_hint(&body)) {
+        return Err(err);
+    }
+    let results = parse_bing_html(&body, max).map_err(EngineErr::Parse)?;
+    if results.is_empty() {
+        return Err(EngineErr::Empty);
+    }
+    Ok(results)
+}
+
+/// Bing 网页结果：`li.b_algo` 下 `h2 > a` + `.b_caption p` / `.b_lineclamp2` / `.b_snippet`
+pub fn parse_bing_html(body: &str, max: usize) -> Result<Vec<SearchResult>, String> {
+    let doc = Html::parse_document(body);
+    let row_sel = Selector::parse("li.b_algo").map_err(|e| e.to_string())?;
+    let link_sel = Selector::parse("h2 > a").map_err(|e| e.to_string())?;
+    let desc_sel = Selector::parse(".b_caption p, .b_lineclamp2, .b_snippet")
+        .map_err(|e| e.to_string())?;
+
+    let mut out = Vec::new();
+    for row in doc.select(&row_sel) {
+        if out.len() >= max {
+            break;
+        }
+        let Some(a) = row.select(&link_sel).next() else {
+            continue;
+        };
+        let href = a.value().attr("href").unwrap_or("").trim();
+        if href.is_empty() || !(href.starts_with("http://") || href.starts_with("https://")) {
+            continue;
+        }
+        let title = a.text().collect::<String>().trim().to_string();
+        if title.is_empty() {
+            continue;
+        }
+        let snippet = row
+            .select(&desc_sel)
+            .next()
+            .map(|t| t.text().collect::<String>().trim().to_string())
+            .unwrap_or_default();
+        out.push(SearchResult {
+            title,
+            url: href.to_string(),
+            snippet,
+        });
+    }
+    Ok(out)
 }
 
 // ============ DDG ============
@@ -711,6 +811,7 @@ mod tests {
     use super::*;
     const DDG_HTML_FIXTURE: &str = include_str!("../../tests/fixtures/ddg.html");
     const DDG_LITE_FIXTURE: &str = include_str!("../../tests/fixtures/ddg_lite.html");
+    const BING_FIXTURE: &str = include_str!("../../tests/fixtures/bing.html");
     const BRAVE_FIXTURE: &str = include_str!("../../tests/fixtures/brave.html");
     const SEARXNG_FIXTURE: &str = include_str!("../../tests/fixtures/searxng.html");
 
@@ -745,6 +846,17 @@ mod tests {
         assert_eq!(r[0].url, "https://example.com/lite1");
         assert_eq!(r[0].snippet, "Lite snippet 1");
         assert_eq!(r[2].url, "https://rust-lang.org/lite");
+    }
+
+    #[test]
+    fn parses_bing_three_results() {
+        let r = parse_bing_html(BING_FIXTURE, 10).expect("parse");
+        assert_eq!(r.len(), 3);
+        assert_eq!(r[0].title, "Bing Result One");
+        assert_eq!(r[0].url, "https://example.com/bing1");
+        assert_eq!(r[0].snippet, "Bing snippet one");
+        assert_eq!(r[1].url, "https://example.com/bing2");
+        assert_eq!(r[2].snippet, "Bing snippet three lineclamp");
     }
 
     #[test]
@@ -814,7 +926,7 @@ mod tests {
             let c = c2.clone();
             async move {
                 let n = c.fetch_add(1, Ordering::SeqCst);
-                if n < 2 {
+                if n < 1 {
                     Err(EngineErr::Network("boom".to_string()))
                 } else {
                     Ok(vec![SearchResult {
@@ -826,9 +938,9 @@ mod tests {
             }
         })
         .await
-        .expect("should succeed on third try");
+        .expect("should succeed on second try");
         assert_eq!(res.len(), 1);
-        assert_eq!(counter.load(Ordering::SeqCst), 3);
+        assert_eq!(counter.load(Ordering::SeqCst), 2);
     }
 
     #[tokio::test]

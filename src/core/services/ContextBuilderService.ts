@@ -8,7 +8,7 @@ import type { MessageDTO } from '../domain/Chat';
 import type { IChatRepository } from '../repositories/IChatRepository';
 import type { IPersonaRepository } from '../repositories/IPersonaRepository';
 import { DEFAULT_TIME_WINDOW_MINUTES } from '../utils/constants';
-import { timestamp as isoNow } from '../utils';
+import { buildDateInstruction, timestamp as isoNow } from '../utils';
 import { stripModelThinkBlocks } from '../utils/messageContent';
 
 /**
@@ -215,7 +215,8 @@ export class ContextBuilderService {
     const system =
       buildRoundtableSystemLead(personaName, otherNames) +
       skill +
-      buildRoundtableSystemAppend(personaName, otherNames);
+      buildRoundtableSystemAppend(personaName, otherNames) +
+      `\n\n${buildDateInstruction()}`;
 
     const mapped = mapGroupHistoryToAgentMessages(
       rawMessages,

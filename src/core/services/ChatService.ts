@@ -12,7 +12,7 @@ import type { IMemoryService } from './MemoryService';
 import type { Agent } from '../agent/Agent';
 import type { AgentInput } from '../agent/types';
 import { mergeToolCallDelta } from '../agent/types';
-import { timestamp } from '../utils';
+import { buildDateInstruction, timestamp } from '../utils';
 
 /**
  * 消息更新事件
@@ -140,10 +140,14 @@ export class ChatService implements IChatService {
 
   private async runSingleChatTurn(chat: Chat): Promise<void> {
     const context = await this.contextBuilder.buildForChat(chat);
-    const systemWithMemory =
+    const systemCore =
       context.memory.trim().length > 0
         ? `${context.skill}\n\n[长期记忆]\n${context.memory}`
         : context.skill;
+    const systemWithMemory =
+      systemCore.trim().length > 0
+        ? `${systemCore.trimEnd()}\n\n${buildDateInstruction()}`
+        : buildDateInstruction();
 
     const input: AgentInput = {
       system: systemWithMemory,
