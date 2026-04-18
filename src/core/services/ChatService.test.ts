@@ -33,6 +33,8 @@ function buildGroupChat(overrides: Partial<Chat> = {}): Chat {
   };
 }
 
+const STUB_TURN_ID = 'turn-stub';
+
 /** 模拟 Agent.run：message_start + 一条最终 assistant 消息 */
 function makeStubAgent(): Agent {
   const run = async function* (input: {
@@ -44,6 +46,8 @@ function makeStubAgent(): Agent {
       role: 'assistant',
       timestamp: ts,
       personaId: input.personaId,
+      turnId: STUB_TURN_ID,
+      iteration: 0,
     };
     const msg = {
       role: 'assistant' as const,
@@ -51,7 +55,7 @@ function makeStubAgent(): Agent {
       timestamp: ts,
       personaId: input.personaId,
     };
-    yield { type: 'message_done', message: msg };
+    yield { type: 'message_done', message: msg, turnId: STUB_TURN_ID };
   };
   return { run } as unknown as Agent;
 }
@@ -147,10 +151,23 @@ describe('ChatService', () => {
         getSkillContent: vi.fn().mockResolvedValue(''),
       };
       const turnTs = '2026-04-18T12:00:00.000Z';
+      const turnId = 'turn-tool-stream';
       const updates: AgentStreamEvent[] = [
-        { type: 'message_start', role: 'assistant', timestamp: turnTs, personaId: 'p-a' },
-        { type: 'tool_call_start', index: 0, name: 'web_search' },
-        { type: 'tool_call_arguments_delta', index: 0, argumentsDelta: '{"query":"上海天气"}' },
+        {
+          type: 'message_start',
+          role: 'assistant',
+          timestamp: turnTs,
+          personaId: 'p-a',
+          turnId,
+          iteration: 0,
+        },
+        { type: 'tool_call_start', index: 0, name: 'web_search', turnId },
+        {
+          type: 'tool_call_arguments_delta',
+          index: 0,
+          argumentsDelta: '{"query":"上海天气"}',
+          turnId,
+        },
         {
           type: 'message_done',
           message: {
@@ -166,6 +183,7 @@ describe('ChatService', () => {
               },
             ],
           },
+          turnId,
         },
       ];
       const agent: Agent = {
