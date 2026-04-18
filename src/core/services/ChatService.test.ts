@@ -33,15 +33,22 @@ function buildGroupChat(overrides: Partial<Chat> = {}): Chat {
   };
 }
 
-/** 模拟 Agent.run：直接产出一条最终 assistant 消息 */
+/** 模拟 Agent.run：message_start + 一条最终 assistant 消息 */
 function makeStubAgent(): Agent {
   const run = async function* (input: {
     personaId?: string;
   }): AsyncGenerator<AgentStreamEvent> {
+    const ts = new Date().toISOString();
+    yield {
+      type: 'message_start',
+      role: 'assistant',
+      timestamp: ts,
+      personaId: input.personaId,
+    };
     const msg = {
       role: 'assistant' as const,
       content: 'ok',
-      timestamp: new Date().toISOString(),
+      timestamp: ts,
       personaId: input.personaId,
     };
     yield { type: 'message_done', message: msg };
@@ -139,7 +146,9 @@ describe('ChatService', () => {
         scan: vi.fn().mockResolvedValue([]),
         getSkillContent: vi.fn().mockResolvedValue(''),
       };
+      const turnTs = '2026-04-18T12:00:00.000Z';
       const updates: AgentStreamEvent[] = [
+        { type: 'message_start', role: 'assistant', timestamp: turnTs, personaId: 'p-a' },
         { type: 'tool_call_start', index: 0, name: 'web_search' },
         { type: 'tool_call_arguments_delta', index: 0, argumentsDelta: '{"query":"上海天气"}' },
         {
@@ -147,7 +156,7 @@ describe('ChatService', () => {
           message: {
             role: 'assistant',
             content: '',
-            timestamp: new Date().toISOString(),
+            timestamp: turnTs,
             personaId: 'p-a',
             toolCalls: [
               {
@@ -175,10 +184,17 @@ describe('ChatService', () => {
         makeMemoryStub()
       );
 
-      const streamPushed: Array<{ done: boolean; toolCallName?: string }> = [];
+      const streamPushed: Array<{
+        done: boolean;
+        role: string;
+        timestamp?: string;
+        toolCallName?: string;
+      }> = [];
       service.onMessageUpdate = (event) => {
         streamPushed.push({
           done: event.done,
+          role: event.message.role,
+          timestamp: event.message.timestamp,
           toolCallName: event.message.toolCalls?.[0]?.name,
         });
       };
@@ -186,6 +202,11 @@ describe('ChatService', () => {
       await service.sendMessage(chat.id, '帮我查天气');
 
       expect(streamPushed.some((e) => !e.done && e.toolCallName === 'web_search')).toBe(true);
+      const assistantTs = new Set(
+        streamPushed.filter((e) => e.role === 'assistant').map((e) => e.timestamp)
+      );
+      expect(assistantTs.size).toBe(1);
+      expect(assistantTs.has(turnTs)).toBe(true);
       expect(chatRepo.addMessage).toHaveBeenCalled();
     });
   });
