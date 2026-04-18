@@ -62,44 +62,52 @@ export class PermissionService implements IPermissionService {
         if (path && isInsideAnyRoot(path, roots)) {
           return { allowed: true, allowOutsideSandbox: false };
         }
-        // sandbox 外，需确认
         const key = `${tool.name}:${pathScopeKey(path)}`;
-        if (this.sessionAllow.has(key)) {
-          return { allowed: true, allowOutsideSandbox: true };
-        }
-        const decision = await this.askUser(tool, args, `读取 ${path}`);
-        return this.applyDecision(decision, key, /*needsBypass=*/ true);
+        return this.authorizeWithSessionKey(tool, args, {
+          sessionKey: key,
+          summary: `读取 ${path}`,
+          bypassOnAllow: true,
+        });
       }
 
       case 'write': {
         const path = getStringArg(args, 'path');
-        const summary = `写入 ${path}`;
         const key = `${tool.name}:${pathScopeKey(path)}`;
-        if (this.sessionAllow.has(key)) {
-          return { allowed: true, allowOutsideSandbox: true };
-        }
-        const decision = await this.askUser(tool, args, summary);
-        return this.applyDecision(decision, key, /*needsBypass=*/ true);
+        return this.authorizeWithSessionKey(tool, args, {
+          sessionKey: key,
+          summary: `写入 ${path}`,
+          bypassOnAllow: true,
+        });
       }
 
       case 'exec': {
         const cmd = getStringArg(args, 'command');
-        const summary = `执行命令: ${cmd}`;
         const key = `${tool.name}:${cmd.slice(0, 100)}`;
-        if (this.sessionAllow.has(key)) {
-          return { allowed: true, allowOutsideSandbox: false };
-        }
-        const decision = await this.askUser(tool, args, summary);
-        return this.applyDecision(
-          decision,
-          key,
-          /*needsBypass=*/ false
-        );
+        return this.authorizeWithSessionKey(tool, args, {
+          sessionKey: key,
+          summary: `执行命令: ${cmd}`,
+          bypassOnAllow: false,
+        });
       }
 
       default:
         return assertNever(tool.permission);
     }
+  }
+
+  /**
+   * 会话白名单命中则直接放行，否则弹框询问后套用决策
+   */
+  private async authorizeWithSessionKey(
+    tool: ITool,
+    args: Record<string, unknown>,
+    opts: { sessionKey: string; summary: string; bypassOnAllow: boolean }
+  ): Promise<AuthorizeResult> {
+    if (this.sessionAllow.has(opts.sessionKey)) {
+      return { allowed: true, allowOutsideSandbox: opts.bypassOnAllow };
+    }
+    const decision = await this.askUser(tool, args, opts.summary);
+    return this.applyDecision(decision, opts.sessionKey, opts.bypassOnAllow);
   }
 
   private applyDecision(

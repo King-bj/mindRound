@@ -39,6 +39,9 @@ export class ToolResultCache implements IToolResultCache {
   /** 同 chatId 的并发 set 串行化，避免同一文件读写竞争 */
   private writeQueue = new Map<string, Promise<void>>();
 
+  /** 进程内镜像，减少同一会话反复读盘/解析 */
+  private memByChat = new Map<string, CacheFile>();
+
   constructor(
     private platform: IPlatformAdapter,
     /** 可注入的时钟，便于测试 TTL */
@@ -103,18 +106,40 @@ export class ToolResultCache implements IToolResultCache {
   }
 
   private async readFile(chatId: string): Promise<CacheFile> {
+    const cached = this.memByChat.get(chatId);
+    if (cached) return cached;
+
     const path = await this.cachePath(chatId);
+    if (!(await this.platform.exists(path))) {
+      this.memByChat.set(chatId, {});
+      return {};
+    }
     try {
-      if (!(await this.platform.exists(path))) return {};
       const raw = await this.platform.readFile(path);
-      const parsed = JSON.parse(raw);
-      return isCacheFile(parsed) ? parsed : {};
-    } catch {
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(raw);
+      } catch (e) {
+        console.warn(`[ToolResultCache] JSON 解析失败，忽略缓存: ${path}`, e);
+        this.memByChat.set(chatId, {});
+        return {};
+      }
+      if (!isCacheFile(parsed)) {
+        console.warn(`[ToolResultCache] 缓存文件结构无效，忽略: ${path}`);
+        this.memByChat.set(chatId, {});
+        return {};
+      }
+      this.memByChat.set(chatId, parsed);
+      return parsed;
+    } catch (e) {
+      console.warn(`[ToolResultCache] 读取缓存失败 (${chatId}):`, e);
+      this.memByChat.set(chatId, {});
       return {};
     }
   }
 
   private async writeFile(chatId: string, data: CacheFile): Promise<void> {
+    this.memByChat.set(chatId, data);
     const path = await this.cachePath(chatId);
     await this.platform.writeFile(path, JSON.stringify(data, null, 2));
   }

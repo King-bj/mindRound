@@ -77,4 +77,18 @@ describe('ToolResultCache', () => {
       canonicalStringify({ c: { y: 2, z: 1 }, a: 1, b: 2 })
     );
   });
+
+  it('缓存命中时进程内镜像避免再次 readFile', async () => {
+    const { platform } = createMemoryPlatform();
+    const cache = new ToolResultCache(platform, () => Date.now(), async (raw) => raw);
+
+    await cache.set('chat-mem', CACHEABLE_TOOL, { path: 'a.md' }, 'body');
+    await cache.get('chat-mem', CACHEABLE_TOOL, { path: 'a.md' });
+    const readFile = platform.readFile as ReturnType<typeof vi.fn>;
+    readFile.mockClear();
+    const hit = await cache.get('chat-mem', CACHEABLE_TOOL, { path: 'a.md' });
+
+    expect(hit).toBe('body');
+    expect(readFile).not.toHaveBeenCalled();
+  });
 });

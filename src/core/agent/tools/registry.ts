@@ -11,15 +11,16 @@ import { updateFileTool } from './updateFile';
 import { searchFileTool } from './searchFile';
 import { executeCommandTool } from './executeCommand';
 
-const BUILTIN_TOOLS: ITool[] = [
-  webSearchTool as ITool,
-  webFetchTool as ITool,
-  readFileTool as ITool,
-  searchFileTool as ITool,
-  writeFileTool as ITool,
-  updateFileTool as ITool,
-  executeCommandTool as ITool,
-];
+/** 各工具带独立泛型入参，数组整体加宽为 ITool 以满足注册表类型 */
+const BUILTIN_TOOLS = [
+  webSearchTool,
+  webFetchTool,
+  readFileTool,
+  searchFileTool,
+  writeFileTool,
+  updateFileTool,
+  executeCommandTool,
+] as unknown as ITool[];
 
 /**
  * 创建默认注册表

@@ -186,7 +186,8 @@ export class ContextBuilderService {
   }
 
   /**
-   * 为群聊构建上下文（原始 DTO）
+   * 为群聊构建上下文（原始 DTO，时间窗内 MessageDTO，无圆桌映射）
+   * @deprecated Agent 圆桌请用 `buildGroupRoundContext`；单聊式「仅换 persona」读历史时仍可用
    */
   async buildForGroup(chat: Chat, currentPersonaId: string): Promise<Context> {
     return this.buildContext(chat.id, currentPersonaId);

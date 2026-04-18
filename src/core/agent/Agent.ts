@@ -38,11 +38,11 @@ export class Agent {
   constructor(private deps: AgentDeps) {}
 
   async *run(input: AgentInput): AsyncGenerator<AgentStreamEvent> {
-    let messages: MessageDTO[] = [...input.messages];
+    const messages: MessageDTO[] = [...input.messages];
 
     for (let iter = 0; iter < MAX_ITERATIONS; iter++) {
       const apiMessages = messagesToApi(trimMessages(messages));
-      let text = '';
+      const textParts: string[] = [];
       const toolCalls: ToolCall[] = [];
       let finishReason:
         | 'stop'
@@ -58,7 +58,7 @@ export class Agent {
         tools: this.deps.registry.schemas(),
       })) {
         if (ev.type === 'text_delta') {
-          text += ev.text;
+          textParts.push(ev.text);
           yield { type: 'text_delta', text: ev.text };
         } else if (ev.type === 'tool_call_delta') {
           mergeToolCallDelta(toolCalls, ev);
@@ -86,7 +86,7 @@ export class Agent {
 
       const assistantMsg: MessageDTO = {
         role: 'assistant',
-        content: text,
+        content: textParts.join(''),
         timestamp: timestamp(),
         personaId: input.personaId,
         toolCalls: validToolCalls.length > 0 ? validToolCalls : undefined,
@@ -127,15 +127,10 @@ export class Agent {
     chatId: string,
     toolCalls: ToolCall[]
   ): Promise<ToolCallResult[]> {
-    // 按顺序处理权限弹框（避免同时弹多个），工具实际运行尽可能并发
     const results: ToolCallResult[] = new Array(toolCalls.length);
-    const runnable: Array<{
-      tc: ToolCall;
-      tool: ITool;
-      args: Record<string, unknown>;
-      ctx: ToolRunContext;
-      idx: number;
-    }> = [];
+
+    type Prepared = { idx: number; tc: ToolCall; tool: ITool; args: Record<string, unknown> };
+    const prepared: Prepared[] = [];
 
     for (let i = 0; i < toolCalls.length; i++) {
       const tc = toolCalls[i];
@@ -149,12 +144,33 @@ export class Agent {
         results[i] = errResult(tc, `入参 JSON 非法: ${parsed.error}`);
         continue;
       }
-      const args = parsed.value;
+      prepared.push({ idx: i, tc, tool, args: parsed.value });
+    }
 
-      // 1. 缓存命中
-      const cached = await this.deps.cache.get(chatId, tool, args);
+    const cacheRows = await Promise.all(
+      prepared.map(async (p) => {
+        if (!p.tool.cacheable) {
+          return { ...p, cached: null };
+        }
+        const cached = await this.deps.cache.get(chatId, p.tool, p.args);
+        return { ...p, cached };
+      })
+    );
+
+    const base = await this.deps.getBaseToolContext();
+
+    const runnable: Array<{
+      tc: ToolCall;
+      tool: ITool;
+      args: Record<string, unknown>;
+      ctx: ToolRunContext;
+      idx: number;
+    }> = [];
+
+    for (const row of cacheRows) {
+      const { idx, tc, tool, args, cached } = row;
       if (cached != null) {
-        results[i] = {
+        results[idx] = {
           id: tc.id,
           name: tc.name,
           content: cached,
@@ -163,25 +179,21 @@ export class Agent {
         };
         continue;
       }
-
-      // 2. 权限决策（顺序 await，弹框串行）
       const auth = await this.deps.permission.authorize(tool, args);
       if (!auth.allowed) {
-        results[i] = errResult(tc, `用户拒绝执行 ${tool.name}`);
+        results[idx] = errResult(tc, `用户拒绝执行 ${tool.name}`);
         continue;
       }
-
-      const base = await this.deps.getBaseToolContext();
       runnable.push({
         tc,
         tool,
         args,
         ctx: { ...base, allowOutsideSandbox: auth.allowOutsideSandbox },
-        idx: i,
+        idx,
       });
     }
 
-    // 3. 并发执行真正的工具 run
+    // 并发执行真正的工具 run
     await Promise.all(
       runnable.map(async ({ tc, tool, args, ctx, idx }) => {
         try {
@@ -197,7 +209,7 @@ export class Agent {
             await this.deps.cache.set(chatId, tool, args, content);
           }
         } catch (e) {
-          results[idx] = errResult(tc, `Error: ${(e as Error).message}`);
+          results[idx] = errResult(tc, `Error: ${formatThrownMessage(e)}`);
         }
       })
     );
@@ -243,4 +255,9 @@ function errResult(tc: ToolCall, message: string): ToolCallResult {
     cached: false,
     isError: true,
   };
+}
+
+function formatThrownMessage(e: unknown): string {
+  if (e instanceof Error) return e.message;
+  return typeof e === 'string' ? e : String(e);
 }

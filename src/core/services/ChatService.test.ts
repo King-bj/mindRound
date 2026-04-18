@@ -6,11 +6,18 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { ChatService } from './ChatService';
 import type { Chat } from '../domain/Chat';
 import type { IChatRepository } from '../repositories/IChatRepository';
-import type { IApiRepository } from '../repositories/IApiRepository';
 import type { ContextBuilderService } from './ContextBuilderService';
 import type { IPersonaRepository } from '../repositories/IPersonaRepository';
 import type { Agent } from '../agent/Agent';
 import type { AgentStreamEvent } from '../agent/types';
+import type { IMemoryService } from './MemoryService';
+
+function makeMemoryStub(): IMemoryService {
+  return {
+    shouldUpdateMemory: vi.fn().mockResolvedValue(false),
+    summarizeAndSave: vi.fn().mockResolvedValue(undefined),
+  };
+}
 
 function buildGroupChat(overrides: Partial<Chat> = {}): Chat {
   const now = new Date().toISOString();
@@ -62,14 +69,6 @@ describe('ChatService', () => {
         updateSpeakerIndex: vi.fn().mockResolvedValue(undefined),
       };
 
-      const apiRepo: Partial<IApiRepository> = {
-        chat: async function* () {
-          // 不会被直接调用（Agent 是 stub）；保留占位
-          yield { type: 'done', finishReason: 'stop' };
-        },
-        chatComplete: vi.fn().mockResolvedValue(''),
-      };
-
       const contextBuilder: Partial<ContextBuilderService> = {
         buildForChat: vi.fn().mockResolvedValue({
           messages: [],
@@ -91,14 +90,15 @@ describe('ChatService', () => {
           { id: 'p-b', name: 'B', description: '', avatar: null, tags: [] },
           { id: 'p-c', name: 'C', description: '', avatar: null, tags: [] },
         ]),
+        getSkillContent: vi.fn().mockResolvedValue(''),
       };
 
       const service = new ChatService(
         chatRepo as IChatRepository,
-        apiRepo as IApiRepository,
         contextBuilder as ContextBuilderService,
         personaRepo as IPersonaRepository,
-        makeStubAgent()
+        makeStubAgent(),
+        makeMemoryStub()
       );
 
       await service.sendMessage(chat.id, '用户第一句');
@@ -128,9 +128,6 @@ describe('ChatService', () => {
         updateMemory: vi.fn().mockResolvedValue(undefined),
       };
 
-      const apiRepo: Partial<IApiRepository> = {
-        chatComplete: vi.fn().mockResolvedValue(''),
-      };
       const contextBuilder: Partial<ContextBuilderService> = {
         buildForChat: vi.fn().mockResolvedValue({
           messages: [{ role: 'user', content: '帮我查天气', timestamp: new Date().toISOString() }],
@@ -140,6 +137,7 @@ describe('ChatService', () => {
       };
       const personaRepo: Partial<IPersonaRepository> = {
         scan: vi.fn().mockResolvedValue([]),
+        getSkillContent: vi.fn().mockResolvedValue(''),
       };
       const updates: AgentStreamEvent[] = [
         { type: 'tool_call_start', index: 0, name: 'web_search' },
@@ -171,10 +169,10 @@ describe('ChatService', () => {
 
       const service = new ChatService(
         chatRepo as IChatRepository,
-        apiRepo as IApiRepository,
         contextBuilder as ContextBuilderService,
         personaRepo as IPersonaRepository,
-        agent
+        agent,
+        makeMemoryStub()
       );
 
       const streamPushed: Array<{ done: boolean; toolCallName?: string }> = [];
@@ -205,15 +203,14 @@ describe('ChatService', () => {
         update: vi.fn().mockResolvedValue(undefined),
       };
 
-      const apiRepo: Partial<IApiRepository> = {};
       const contextBuilder: Partial<ContextBuilderService> = {};
 
       const service = new ChatService(
         chatRepo as IChatRepository,
-        apiRepo as IApiRepository,
         contextBuilder as ContextBuilderService,
         {} as IPersonaRepository,
-        makeStubAgent()
+        makeStubAgent(),
+        makeMemoryStub()
       );
 
       const result = await service.addPersonasToGroup(chat.id, ['c', 'c', 'a']);
@@ -233,10 +230,10 @@ describe('ChatService', () => {
       };
       const service = new ChatService(
         chatRepo as IChatRepository,
-        {} as IApiRepository,
         {} as ContextBuilderService,
         {} as IPersonaRepository,
-        makeStubAgent()
+        makeStubAgent(),
+        makeMemoryStub()
       );
 
       await expect(service.addPersonasToGroup('id', ['y'])).rejects.toThrow('group');

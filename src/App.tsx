@@ -16,6 +16,7 @@ import { FilePersonaRepository } from './core/infrastructure/repositories/FilePe
 import { FileConfigRepository } from './core/infrastructure/repositories/FileConfigRepository';
 import { HttpApiRepository } from './core/infrastructure/repositories/HttpApiRepository';
 import { ChatService } from './core/services/ChatService';
+import { MemoryService } from './core/services/MemoryService';
 import { ContextBuilderService } from './core/services/ContextBuilderService';
 import { PersonaService } from './core/services/PersonaService';
 import { Agent } from './core/agent/Agent';
@@ -178,9 +179,14 @@ function App() {
     [apiRepo, toolRegistry, permissionService, toolResultCache, configRepo, platformAdapter]
   );
 
+  const memoryService = useMemo(
+    () => new MemoryService(chatRepo, apiRepo),
+    [chatRepo, apiRepo]
+  );
+
   const chatService = useMemo(
-    () => new ChatService(chatRepo, apiRepo, contextBuilder, personaRepo, agent),
-    [chatRepo, apiRepo, contextBuilder, personaRepo, agent]
+    () => new ChatService(chatRepo, contextBuilder, personaRepo, agent, memoryService),
+    [chatRepo, contextBuilder, personaRepo, agent, memoryService]
   );
   const personaService = useMemo(() => new PersonaService(personaRepo), [personaRepo]);
   const chatStore = useMemo(() => createChatStore(chatService), [chatService]);

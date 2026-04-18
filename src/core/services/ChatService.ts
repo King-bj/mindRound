@@ -4,27 +4,15 @@
  * 群聊按 personaIds 顺序让每位成员各走一次 Agent。
  */
 import type { Chat, MessageDTO } from '../domain/Chat';
+import { createChat } from '../domain/Chat';
 import type { IChatRepository } from '../repositories/IChatRepository';
-import type {
-  IApiRepository,
-  ChatMessage,
-} from '../repositories/IApiRepository';
 import type { IPersonaRepository } from '../repositories/IPersonaRepository';
 import type { ContextBuilderService } from './ContextBuilderService';
+import type { IMemoryService } from './MemoryService';
 import type { Agent } from '../agent/Agent';
 import type { AgentInput } from '../agent/types';
-import { MEMORY_IDLE_THRESHOLD_MS } from '../utils/constants';
+import { mergeToolCallDelta } from '../agent/types';
 import { timestamp } from '../utils';
-
-/** 记忆摘要提示词模板 */
-const MEMORY_SUMMARIZER_PROMPT = `你是一名记忆整理助手。根据对话历史，提取关键信息追加到现有记忆中。
-现有记忆：
-{memory}
-
-新对话：
-{conversation}
-
-请输出更新后的完整记忆（Markdown 格式）。`;
 
 /**
  * 消息更新事件
@@ -52,10 +40,10 @@ export interface IChatService {
 export class ChatService implements IChatService {
   constructor(
     private chatRepo: IChatRepository,
-    private apiRepo: IApiRepository,
     private contextBuilder: ContextBuilderService,
     private personaRepo: IPersonaRepository,
-    private agent: Agent
+    private agent: Agent,
+    private memoryService: IMemoryService
   ) {}
 
   onMessageUpdate?: (event: MessageUpdateEvent) => void;
@@ -80,7 +68,7 @@ export class ChatService implements IChatService {
       await this.runGroupChat(chat);
     }
 
-    this.updateMemory(chat).catch((err) => {
+    this.memoryService.summarizeAndSave(chat).catch((err) => {
       console.error('Memory update failed:', err);
     });
   }
@@ -96,30 +84,18 @@ export class ChatService implements IChatService {
     if (existingSingle) {
       return existingSingle;
     }
-    const now = timestamp();
-    return this.chatRepo.create({
-      type: 'single',
-      title: personaId,
-      personaIds: [personaId],
-      currentSpeakerIndex: 0,
-      createdAt: now,
-      updatedAt: now,
-    });
+    const { id: _omitId, ...payload } = createChat('single', personaId, [personaId]);
+    void _omitId;
+    return this.chatRepo.create(payload);
   }
 
   async createGroupChat(title: string, personaIds: string[]): Promise<Chat> {
     if (personaIds.length < 2) {
       throw new Error('Group chat requires at least 2 personas');
     }
-    const now = timestamp();
-    return this.chatRepo.create({
-      type: 'group',
-      title,
-      personaIds,
-      currentSpeakerIndex: 0,
-      createdAt: now,
-      updatedAt: now,
-    });
+    const { id: _omitId, ...payload } = createChat('group', title, personaIds);
+    void _omitId;
+    return this.chatRepo.create(payload);
   }
 
   async getHistory(chatId: string): Promise<MessageDTO[]> {
@@ -203,166 +179,156 @@ export class ChatService implements IChatService {
     }
   }
 
+  private ensureStreamingAssistant(
+    current: MessageDTO | null,
+    input: AgentInput,
+    withToolCalls: boolean
+  ): MessageDTO {
+    if (!current) {
+      return {
+        role: 'assistant',
+        content: '',
+        timestamp: timestamp(),
+        personaId: input.personaId,
+        ...(withToolCalls ? { toolCalls: [] as NonNullable<MessageDTO['toolCalls']> } : {}),
+      };
+    }
+    if (withToolCalls && current.toolCalls === undefined) {
+      current.toolCalls = [];
+    }
+    return current;
+  }
+
   /**
    * 消费 Agent 流式事件：
-   * - 对 assistant 文本，边流边推送给 UI（done=false）
+   * - 对 assistant 文本，边流边推送给 UI（done=false，经短节流合并）
    * - 完整的 assistant / tool 消息在 agent 产生 message_done 时写入仓库与 UI
    */
   private async runAgent(chatId: string, input: AgentInput): Promise<void> {
     let currentAssistant: MessageDTO | null = null;
 
-    for await (const ev of this.agent.run(input)) {
-      switch (ev.type) {
-        case 'text_delta': {
-          if (!currentAssistant) {
-            currentAssistant = {
-              role: 'assistant',
-              content: '',
-              timestamp: timestamp(),
-              personaId: input.personaId,
-            };
-          }
-          currentAssistant.content += ev.text;
-          this.onMessageUpdate?.({
-            chatId,
-            message: currentAssistant,
-            done: false,
-          });
-          break;
-        }
-        case 'tool_call_start': {
-          if (!currentAssistant) {
-            currentAssistant = {
-              role: 'assistant',
-              content: '',
-              timestamp: timestamp(),
-              personaId: input.personaId,
-              toolCalls: [],
-            };
-          }
-          const calls = [...(currentAssistant.toolCalls ?? [])];
-          const existing = calls[ev.index] ?? {
-            id: '',
-            name: '',
-            arguments: '',
-          };
-          calls[ev.index] = {
-            ...existing,
-            name: ev.name ?? existing.name,
-          };
-          currentAssistant.toolCalls = calls;
-          this.onMessageUpdate?.({ chatId, message: currentAssistant, done: false });
-          break;
-        }
-        case 'tool_call_arguments_delta': {
-          if (!currentAssistant) {
-            currentAssistant = {
-              role: 'assistant',
-              content: '',
-              timestamp: timestamp(),
-              personaId: input.personaId,
-              toolCalls: [],
-            };
-          }
-          const calls = [...(currentAssistant.toolCalls ?? [])];
-          const existing = calls[ev.index] ?? {
-            id: '',
-            name: '',
-            arguments: '',
-          };
-          calls[ev.index] = {
-            ...existing,
-            arguments: (existing.arguments ?? '') + ev.argumentsDelta,
-          };
-          currentAssistant.toolCalls = calls;
-          this.onMessageUpdate?.({ chatId, message: currentAssistant, done: false });
-          break;
-        }
-        case 'message_done': {
-          const msg = ev.message;
-          await this.chatRepo.addMessage(chatId, msg);
-          this.onMessageUpdate?.({ chatId, message: msg, done: true });
-          if (msg.role === 'assistant') {
-            currentAssistant = null;
-          }
-          break;
-        }
-        case 'tool_executed':
-          // 仅 UI 提示（缓存命中标记），实际 message 仍从 message_done 走
-          break;
-        case 'max_iterations_reached': {
-          const msg: MessageDTO = {
-            role: 'assistant',
-            content: '[Agent 达到最大迭代次数，已停止]',
-            timestamp: timestamp(),
-            personaId: input.personaId,
-          };
-          await this.chatRepo.addMessage(chatId, msg);
-          this.onMessageUpdate?.({ chatId, message: msg, done: true });
-          break;
-        }
-        case 'error': {
-          const msg: MessageDTO = {
-            role: 'assistant',
-            content: `[Agent 错误：${ev.error}]`,
-            timestamp: timestamp(),
-            personaId: input.personaId,
-          };
-          await this.chatRepo.addMessage(chatId, msg);
-          this.onMessageUpdate?.({ chatId, message: msg, done: true });
-          break;
-        }
-        default:
-          break;
+    let streamUiTimer: ReturnType<typeof setTimeout> | null = null;
+    let pendingStreamEvent: MessageUpdateEvent | null = null;
+
+    const scheduleStreamUiUpdate = (event: MessageUpdateEvent): void => {
+      pendingStreamEvent = event;
+      if (streamUiTimer != null) return;
+      streamUiTimer = setTimeout(() => {
+        streamUiTimer = null;
+        const ev = pendingStreamEvent;
+        pendingStreamEvent = null;
+        if (ev) this.onMessageUpdate?.(ev);
+      }, 24);
+    };
+
+    const flushStreamUiUpdate = (): void => {
+      if (streamUiTimer != null) {
+        clearTimeout(streamUiTimer);
+        streamUiTimer = null;
       }
-    }
-  }
+      const ev = pendingStreamEvent;
+      pendingStreamEvent = null;
+      if (ev) this.onMessageUpdate?.(ev);
+    };
 
-  private async updateMemory(chat: Chat): Promise<void> {
-    const messages = await this.chatRepo.getMessages(chat.id);
-    if (messages.length < 2) return;
-
-    const lastMsgTime = new Date(messages[messages.length - 1].timestamp);
-    const now = new Date();
-    if (now.getTime() - lastMsgTime.getTime() < MEMORY_IDLE_THRESHOLD_MS) {
-      return;
-    }
-
-    const currentMemory = await this.chatRepo.getMemory(chat.id);
-    const summary = await this.summarizeMessages(messages, currentMemory);
-    await this.chatRepo.updateMemory(chat.id, summary);
-  }
-
-  /**
-   * 记忆摘要：把 tool 消息过滤掉；assistant.toolCalls 降维为占位文本
-   */
-  private async summarizeMessages(
-    messages: MessageDTO[],
-    currentMemory: string
-  ): Promise<string> {
-    const conversation = messages
-      .map((m) => {
-        if (m.role === 'tool') return null;
-        if (m.role === 'assistant') {
-          const toolNote =
-            m.toolCalls && m.toolCalls.length > 0
-              ? `[调用工具: ${m.toolCalls.map((t) => t.name).join(', ')}] `
-              : '';
-          return `assistant: ${toolNote}${m.content}`;
+    try {
+      for await (const ev of this.agent.run(input)) {
+        switch (ev.type) {
+          case 'text_delta': {
+            currentAssistant = this.ensureStreamingAssistant(
+              currentAssistant,
+              input,
+              false
+            );
+            currentAssistant.content += ev.text;
+            scheduleStreamUiUpdate({
+              chatId,
+              message: currentAssistant,
+              done: false,
+            });
+            break;
+          }
+          case 'tool_call_start': {
+            currentAssistant = this.ensureStreamingAssistant(
+              currentAssistant,
+              input,
+              true
+            );
+            const calls = [...(currentAssistant.toolCalls ?? [])];
+            mergeToolCallDelta(calls, {
+              index: ev.index,
+              name: ev.name,
+            });
+            currentAssistant.toolCalls = calls;
+            scheduleStreamUiUpdate({
+              chatId,
+              message: currentAssistant,
+              done: false,
+            });
+            break;
+          }
+          case 'tool_call_arguments_delta': {
+            currentAssistant = this.ensureStreamingAssistant(
+              currentAssistant,
+              input,
+              true
+            );
+            const calls = [...(currentAssistant.toolCalls ?? [])];
+            mergeToolCallDelta(calls, {
+              index: ev.index,
+              argumentsDelta: ev.argumentsDelta,
+            });
+            currentAssistant.toolCalls = calls;
+            scheduleStreamUiUpdate({
+              chatId,
+              message: currentAssistant,
+              done: false,
+            });
+            break;
+          }
+          case 'message_done': {
+            flushStreamUiUpdate();
+            const msg = ev.message;
+            await this.chatRepo.addMessage(chatId, msg);
+            this.onMessageUpdate?.({ chatId, message: msg, done: true });
+            if (msg.role === 'assistant') {
+              currentAssistant = null;
+            }
+            break;
+          }
+          case 'tool_executed':
+            // 仅 UI 提示（缓存命中标记），实际 message 仍从 message_done 走
+            break;
+          case 'max_iterations_reached': {
+            flushStreamUiUpdate();
+            const msg: MessageDTO = {
+              role: 'assistant',
+              content: '[Agent 达到最大迭代次数，已停止]',
+              timestamp: timestamp(),
+              personaId: input.personaId,
+            };
+            await this.chatRepo.addMessage(chatId, msg);
+            this.onMessageUpdate?.({ chatId, message: msg, done: true });
+            break;
+          }
+          case 'error': {
+            flushStreamUiUpdate();
+            const msg: MessageDTO = {
+              role: 'assistant',
+              content: `[Agent 错误：${ev.error}]`,
+              timestamp: timestamp(),
+              personaId: input.personaId,
+            };
+            await this.chatRepo.addMessage(chatId, msg);
+            this.onMessageUpdate?.({ chatId, message: msg, done: true });
+            break;
+          }
+          default:
+            break;
         }
-        return `user: ${m.content}`;
-      })
-      .filter((x): x is string => !!x)
-      .join('\n');
-
-    const prompt = MEMORY_SUMMARIZER_PROMPT
-      .replace('{memory}', currentMemory)
-      .replace('{conversation}', conversation);
-
-    const apiMessages: ChatMessage[] = [
-      { role: 'user', content: prompt },
-    ];
-
-    return this.apiRepo.chatComplete({ messages: apiMessages });
+      }
+    } finally {
+      flushStreamUiUpdate();
+    }
   }
 }

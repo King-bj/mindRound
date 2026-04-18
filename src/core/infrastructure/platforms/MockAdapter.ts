@@ -177,6 +177,13 @@ export class MockAdapter implements IPlatformAdapter {
       if (typeof s.apiBaseUrl === 'string') merged.apiBaseUrl = s.apiBaseUrl;
       if (typeof s.model === 'string') merged.model = s.model;
       if (typeof s.dataDir === 'string') merged.dataDir = s.dataDir;
+      if (s.searchProvider === 'tavily' || s.searchProvider === 'serper' || s.searchProvider === 'ddg') {
+        merged.searchProvider = s.searchProvider;
+      }
+      if (typeof s.searchApiKey === 'string') merged.searchApiKey = s.searchApiKey;
+      if (Array.isArray(s.sandboxFolders)) {
+        merged.sandboxFolders = s.sandboxFolders.filter((p): p is string => typeof p === 'string');
+      }
     } catch {
       /* 缺失或非 JSON */
     }
