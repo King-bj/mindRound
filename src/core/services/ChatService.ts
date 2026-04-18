@@ -179,19 +179,15 @@ export class ChatService implements IChatService {
     }
   }
 
-  private ensureStreamingAssistant(
+  /**
+   * Agent 每轮先 yield message_start，此处仅补全 toolCalls 数组。
+   */
+  private prepareStreamingAssistant(
     current: MessageDTO | null,
-    input: AgentInput,
     withToolCalls: boolean
   ): MessageDTO {
     if (!current) {
-      return {
-        role: 'assistant',
-        content: '',
-        timestamp: timestamp(),
-        personaId: input.personaId,
-        ...(withToolCalls ? { toolCalls: [] as NonNullable<MessageDTO['toolCalls']> } : {}),
-      };
+      throw new Error('Agent must emit message_start before text_delta or tool_call_*');
     }
     if (withToolCalls && current.toolCalls === undefined) {
       current.toolCalls = [];
@@ -234,10 +230,20 @@ export class ChatService implements IChatService {
     try {
       for await (const ev of this.agent.run(input)) {
         switch (ev.type) {
+          case 'message_start': {
+            if (ev.role !== 'assistant') break;
+            currentAssistant = {
+              role: 'assistant',
+              content: '',
+              timestamp: ev.timestamp,
+              personaId: ev.personaId,
+              turnId: ev.turnId,
+            };
+            break;
+          }
           case 'text_delta': {
-            currentAssistant = this.ensureStreamingAssistant(
+            currentAssistant = this.prepareStreamingAssistant(
               currentAssistant,
-              input,
               false
             );
             currentAssistant.content += ev.text;
@@ -249,9 +255,8 @@ export class ChatService implements IChatService {
             break;
           }
           case 'tool_call_start': {
-            currentAssistant = this.ensureStreamingAssistant(
+            currentAssistant = this.prepareStreamingAssistant(
               currentAssistant,
-              input,
               true
             );
             const calls = [...(currentAssistant.toolCalls ?? [])];
@@ -268,9 +273,8 @@ export class ChatService implements IChatService {
             break;
           }
           case 'tool_call_arguments_delta': {
-            currentAssistant = this.ensureStreamingAssistant(
+            currentAssistant = this.prepareStreamingAssistant(
               currentAssistant,
-              input,
               true
             );
             const calls = [...(currentAssistant.toolCalls ?? [])];
@@ -306,6 +310,7 @@ export class ChatService implements IChatService {
               content: '[Agent 达到最大迭代次数，已停止]',
               timestamp: timestamp(),
               personaId: input.personaId,
+              turnId: ev.turnId,
             };
             await this.chatRepo.addMessage(chatId, msg);
             this.onMessageUpdate?.({ chatId, message: msg, done: true });
@@ -318,6 +323,7 @@ export class ChatService implements IChatService {
               content: `[Agent 错误：${ev.error}]`,
               timestamp: timestamp(),
               personaId: input.personaId,
+              turnId: ev.turnId,
             };
             await this.chatRepo.addMessage(chatId, msg);
             this.onMessageUpdate?.({ chatId, message: msg, done: true });

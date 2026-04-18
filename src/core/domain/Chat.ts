@@ -85,6 +85,12 @@ export interface MessageDTO {
   name?: string;
   /** 工具结果是否来自缓存（仅 UI 展示用，不随 API 发送） */
   cached?: boolean;
+  /**
+   * 所属回合 ID：同一次 `Agent.run()` 产生的 assistant + tool 消息共享
+   * 该 ID，便于 UI 合并为"一个气泡 + 若干步骤行 + Sources 底条"。
+   * 旧消息可能缺失，前端需做向后兼容。
+   */
+  turnId?: string;
 }
 
 /**

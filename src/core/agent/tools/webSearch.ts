@@ -18,7 +18,11 @@ interface Args {
 export const webSearchTool: ITool<Args> = {
   name: 'web_search',
   description:
-    '通过搜索引擎查询互联网。返回若干条搜索结果（标题/URL/摘要）。适合用于查最新资讯、找资料页面 URL。',
+    [
+      '通过搜索引擎查询互联网。返回若干条搜索结果（标题/URL/摘要）。适合用于查最新资讯、找资料页面 URL。',
+      '搜索结果给出的 URL 通常是站点首页；如果你需要了解某站点的完整画像（例如作者的博客/个人站），',
+      '请搭配 `web_fetch`：先抓首页，再从返回的「同域内链」里挑 2~5 条相关子页（如 /about /blog /projects）继续抓，综合后再回答。',
+    ].join(' '),
   parameters: {
     type: 'object',
     properties: {

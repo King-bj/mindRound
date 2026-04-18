@@ -2,7 +2,7 @@
  * 聊天页面
  * @description 单聊和群聊共用的聊天界面
  */
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { MessageBubble } from '../components/MessageBubble';
 import { ChatInput } from '../components/ChatInput';
 import { GroupChatInfoPanel } from '../components/groupChatInfoPanel';
@@ -11,6 +11,7 @@ import type { Chat, MessageDTO } from '../../core/domain/Chat';
 import type { Persona } from '../../core/domain/Persona';
 import type { IChatService } from '../../core/services/ChatService';
 import type { IPersonaRepository } from '../../core/repositories/IPersonaRepository';
+import { buildTurnViews } from '../utils/turnAggregator';
 
 interface ChatPageProps {
   chatId: string;
@@ -110,6 +111,13 @@ export const ChatPage: React.FC<ChatPageProps> = ({
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
+  /**
+   * 把线性 `messages` 按 `turnId` 聚合成若干回合视图：
+   * - 同一 Agent.run 产生的 assistant + tool 消息合并为一个气泡
+   * - 旧消息无 `turnId` → 单条消息一个气泡（兼容老数据）
+   */
+  const turnViews = useMemo(() => buildTurnViews(messages), [messages]);
+
   const handleSend = async (content: string) => {
     if (!content.trim() || isSending) return;
 
@@ -195,19 +203,23 @@ export const ChatPage: React.FC<ChatPageProps> = ({
         aria-label="聊天消息"
         aria-live="polite"
       >
-        {messages.map((msg, index) => {
+        {turnViews.map((view, index) => {
+          const msg = view.bubble;
           const persona = msg.personaId ? personaMap[msg.personaId] : undefined;
           return (
             <MessageBubble
-              key={`${msg.timestamp}-${index}-${msg.role}`}
+              key={`${view.key}-${index}`}
               role={msg.role}
-              content={msg.content}
+              content={view.grouped ? view.content : msg.content}
               timestamp={msg.timestamp}
               speakerName={persona?.name}
               speakerAvatar={persona?.avatar}
-              toolCalls={msg.toolCalls}
+              toolCalls={view.grouped ? undefined : msg.toolCalls}
               toolName={msg.name}
               cached={msg.cached}
+              steps={view.grouped ? view.steps : undefined}
+              sources={view.grouped ? view.sources : undefined}
+              hasRunningStep={view.grouped ? view.hasRunningStep : undefined}
             />
           );
         })}

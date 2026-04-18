@@ -1,4 +1,8 @@
 //! Agent 工具：web_fetch。拉 URL → Markdown。带 SSRF 白名单防护。
+//!
+//! 为了让模型在"拿到首页后继续深挖 /about /blog 等子页"更容易，
+//! 返回值中附带同域内链 Top N，并在拼装的字符串末尾呈现一段「同域内链」清单。
+use scraper::{Html, Selector};
 use serde::{Deserialize, Serialize};
 use std::net::IpAddr;
 use url::Host;
@@ -25,6 +29,17 @@ pub struct FetchResult {
     pub markdown: String,
     /// 截断提示（若内容被截断）
     pub truncated: bool,
+    /// 同域内链列表（用于引导模型继续抓子页）
+    pub links: Vec<PageLink>,
+}
+
+/// 同域内链：便于前端 / 模型选择 2~5 条子页继续抓
+#[derive(Debug, Clone, Serialize)]
+pub struct PageLink {
+    /// 绝对 URL
+    pub url: String,
+    /// 链接可见文本（已 trim，可能为空）
+    pub text: String,
 }
 
 #[tauri::command]
@@ -59,6 +74,14 @@ pub async fn agent_web_fetch(args: FetchArgs) -> Result<FetchResult, String> {
     let truncated_bytes = bytes.len() > DEFAULT_MAX_BYTES;
     let slice = &bytes[..bytes.len().min(DEFAULT_MAX_BYTES)];
 
+    // 预先从 HTML 抽同域内链（抽取时使用 raw html，而不是转换后的 markdown）
+    let links = if content_type.contains("html") {
+        let html_str = String::from_utf8_lossy(slice);
+        extract_same_domain_links(&html_str, &parsed, 20)
+    } else {
+        Vec::new()
+    };
+
     let markdown = if content_type.contains("html") {
         // html2md 只接受 &str
         let html = String::from_utf8_lossy(slice);
@@ -87,7 +110,68 @@ pub async fn agent_web_fetch(args: FetchArgs) -> Result<FetchResult, String> {
         content_type,
         markdown,
         truncated: truncated_bytes || md_truncated,
+        links,
     })
+}
+
+/// 从 HTML 里抽取同域、去重、去锚点的内链（保留绝对 URL + 可见文本）
+///
+/// 过滤：
+/// - 仅保留 http/https 且 host 等于 base 的链接
+/// - 去掉 fragment-only（`#xxx`）与 `javascript:` / `mailto:`
+/// - 同 URL 去重，保留第一次出现的锚文本
+/// - 最多 `max` 条
+pub fn extract_same_domain_links(html: &str, base: &url::Url, max: usize) -> Vec<PageLink> {
+    let Ok(a_sel) = Selector::parse("a[href]") else {
+        return Vec::new();
+    };
+    let doc = Html::parse_document(html);
+    let Some(base_host) = base.host_str().map(|s| s.to_ascii_lowercase()) else {
+        return Vec::new();
+    };
+
+    let mut seen = std::collections::HashSet::<String>::new();
+    let mut out = Vec::with_capacity(max);
+
+    for a in doc.select(&a_sel) {
+        if out.len() >= max {
+            break;
+        }
+        let Some(href_raw) = a.value().attr("href") else {
+            continue;
+        };
+        let href = href_raw.trim();
+        if href.is_empty()
+            || href.starts_with('#')
+            || href.starts_with("javascript:")
+            || href.starts_with("mailto:")
+            || href.starts_with("tel:")
+        {
+            continue;
+        }
+        let Ok(abs) = base.join(href) else {
+            continue;
+        };
+        if !matches!(abs.scheme(), "http" | "https") {
+            continue;
+        }
+        let Some(host) = abs.host_str() else {
+            continue;
+        };
+        if !host.eq_ignore_ascii_case(&base_host) {
+            continue;
+        }
+        // 去 fragment，保留 path/query 作为去重 key
+        let mut canon = abs.clone();
+        canon.set_fragment(None);
+        let key = canon.to_string();
+        if !seen.insert(key.clone()) {
+            continue;
+        }
+        let text = a.text().collect::<String>().trim().to_string();
+        out.push(PageLink { url: key, text });
+    }
+    out
 }
 
 /// 公开以便 TS 侧在早期也能走 Rust 校验；SSRF 白名单：仅 http(s)，拒绝内网/环回/保留段
@@ -188,5 +272,58 @@ mod tests {
     fn rejects_local_suffixes() {
         assert!(is_allowed_url(&u("http://foo.local/")).is_err());
         assert!(is_allowed_url(&u("http://db.internal/")).is_err());
+    }
+
+    #[test]
+    fn extracts_same_domain_links_only() {
+        let base = u("https://docs.example.com/");
+        // 使用 r##"…"##：r#"…"# 会在首个 `href="#…` 处被误判为字符串结束（Rust 2021）
+        let html = r##"
+            <html><body>
+              <a href="/about">关于我</a>
+              <a href="/blog/">博客</a>
+              <a href="https://docs.example.com/resume">简历</a>
+              <a href="https://other.com/foo">外站</a>
+              <a href="#top">锚点</a>
+              <a href="mailto:a@b.com">邮件</a>
+              <a href="javascript:void(0)">js</a>
+              <a href="/about">关于我-重复</a>
+            </body></html>
+        "##;
+        let links = extract_same_domain_links(html, &base, 20);
+        assert_eq!(links.len(), 3);
+        assert_eq!(links[0].url, "https://docs.example.com/about");
+        assert_eq!(links[0].text, "关于我");
+        assert_eq!(links[1].url, "https://docs.example.com/blog/");
+        assert_eq!(links[2].url, "https://docs.example.com/resume");
+    }
+
+    #[test]
+    fn extract_respects_max() {
+        let base = u("https://docs.example.com/");
+        let html = r##"
+            <html><body>
+              <a href="/a">A</a>
+              <a href="/b">B</a>
+              <a href="/c">C</a>
+              <a href="/d">D</a>
+            </body></html>
+        "##;
+        let links = extract_same_domain_links(html, &base, 2);
+        assert_eq!(links.len(), 2);
+    }
+
+    #[test]
+    fn extract_strips_fragment_for_dedup() {
+        let base = u("https://docs.example.com/");
+        let html = r##"
+            <html><body>
+              <a href="/about#a">锚1</a>
+              <a href="/about#b">锚2</a>
+            </body></html>
+        "##;
+        let links = extract_same_domain_links(html, &base, 10);
+        assert_eq!(links.len(), 1);
+        assert_eq!(links[0].url, "https://docs.example.com/about");
     }
 }

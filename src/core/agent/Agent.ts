@@ -20,7 +20,7 @@ import type {
 import { mergeToolCallDelta, safeParseJson } from './types';
 import type { IPermissionService } from './PermissionService';
 import type { IToolResultCache } from './ToolResultCache';
-import { timestamp } from '../utils';
+import { timestamp, generateId } from '../utils';
 import { trimMessages } from './ContextTrimmer';
 
 export const MAX_ITERATIONS = 8;
@@ -39,8 +39,19 @@ export class Agent {
 
   async *run(input: AgentInput): AsyncGenerator<AgentStreamEvent> {
     const messages: MessageDTO[] = [...input.messages];
+    const turnId = generateId('turn');
 
     for (let iter = 0; iter < MAX_ITERATIONS; iter++) {
+      const turnTs = timestamp();
+      yield {
+        type: 'message_start',
+        role: 'assistant',
+        timestamp: turnTs,
+        personaId: input.personaId,
+        turnId,
+        iteration: iter,
+      };
+
       const apiMessages = messagesToApi(trimMessages(messages));
       const textParts: string[] = [];
       const toolCalls: ToolCall[] = [];
@@ -59,7 +70,7 @@ export class Agent {
       })) {
         if (ev.type === 'text_delta') {
           textParts.push(ev.text);
-          yield { type: 'text_delta', text: ev.text };
+          yield { type: 'text_delta', text: ev.text, turnId };
         } else if (ev.type === 'tool_call_delta') {
           mergeToolCallDelta(toolCalls, ev);
           if (ev.name || ev.id) {
@@ -67,6 +78,7 @@ export class Agent {
               type: 'tool_call_start',
               index: ev.index,
               name: ev.name,
+              turnId,
             };
           }
           if (ev.argumentsDelta) {
@@ -74,6 +86,7 @@ export class Agent {
               type: 'tool_call_arguments_delta',
               index: ev.index,
               argumentsDelta: ev.argumentsDelta,
+              turnId,
             };
           }
         } else if (ev.type === 'done') {
@@ -87,12 +100,13 @@ export class Agent {
       const assistantMsg: MessageDTO = {
         role: 'assistant',
         content: textParts.join(''),
-        timestamp: timestamp(),
+        timestamp: turnTs,
         personaId: input.personaId,
         toolCalls: validToolCalls.length > 0 ? validToolCalls : undefined,
+        turnId,
       };
       messages.push(assistantMsg);
-      yield { type: 'message_done', message: assistantMsg };
+      yield { type: 'message_done', message: assistantMsg, turnId };
 
       if (finishReason !== 'tool_calls' || validToolCalls.length === 0) {
         return;
@@ -108,6 +122,7 @@ export class Agent {
           toolCallId: r.id,
           name: r.name,
           cached: r.cached || undefined,
+          turnId,
         };
         messages.push(m);
         yield {
@@ -115,12 +130,13 @@ export class Agent {
           toolCallId: r.id,
           name: r.name,
           cached: r.cached,
+          turnId,
         };
-        yield { type: 'message_done', message: m };
+        yield { type: 'message_done', message: m, turnId };
       }
     }
 
-    yield { type: 'max_iterations_reached' };
+    yield { type: 'max_iterations_reached', turnId };
   }
 
   private async executeToolCalls(

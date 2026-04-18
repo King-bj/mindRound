@@ -62,15 +62,37 @@ export interface AgentInput {
 
 /**
  * Agent 流式事件
+ * @description 同一次 `Agent.run()` 下所有事件共享一个 `turnId`，用于 UI 将
+ * 多轮迭代合并为一个 assistant 气泡 + 若干步骤 + Sources 底条。
  */
 export type AgentStreamEvent =
-  | { type: 'text_delta'; text: string }
-  | { type: 'tool_call_start'; index: number; name?: string }
-  | { type: 'tool_call_arguments_delta'; index: number; argumentsDelta: string }
-  | { type: 'message_done'; message: MessageDTO }
-  | { type: 'tool_executed'; toolCallId: string; name: string; cached: boolean }
-  | { type: 'max_iterations_reached' }
-  | { type: 'error'; error: string };
+  | {
+      type: 'message_start';
+      role: 'assistant';
+      timestamp: string;
+      personaId?: string;
+      turnId: string;
+      /** 第几轮迭代（0 起步）——便于调试与测试 */
+      iteration: number;
+    }
+  | { type: 'text_delta'; text: string; turnId: string }
+  | { type: 'tool_call_start'; index: number; name?: string; turnId: string }
+  | {
+      type: 'tool_call_arguments_delta';
+      index: number;
+      argumentsDelta: string;
+      turnId: string;
+    }
+  | { type: 'message_done'; message: MessageDTO; turnId: string }
+  | {
+      type: 'tool_executed';
+      toolCallId: string;
+      name: string;
+      cached: boolean;
+      turnId: string;
+    }
+  | { type: 'max_iterations_reached'; turnId: string }
+  | { type: 'error'; error: string; turnId: string };
 
 /**
  * 工具调用执行结果
