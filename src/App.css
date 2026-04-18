@@ -2021,9 +2021,12 @@
   border: 1px solid #e4e7eb;
   border-radius: 999px;
   font-size: 12px;
+  font-family: inherit;
   color: #2f3340;
   text-decoration: none;
   max-width: 220px;
+  cursor: pointer;
+  text-align: left;
 }
 
 .source-chip:hover {

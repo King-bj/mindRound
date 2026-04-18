@@ -8,11 +8,16 @@
  * 兼容旧消息：当未提供 `steps` / `sources` 时仍按老路径渲染单条消息。
  */
 import React, { useMemo, useState } from 'react';
+import type { Components } from 'react-markdown';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { stripModelThinkBlocks } from '../../core/utils/messageContent';
 import type { ToolCall } from '../../core/domain/Chat';
 import type { SourceItem, TurnStep } from '../utils/turnAggregator';
+import {
+  openInDefaultBrowser,
+  shouldOpenExternally,
+} from '../utils/openInDefaultBrowser';
 
 interface MessageBubbleProps {
   /** 消息角色 */
@@ -223,7 +228,7 @@ function StepsBlock({
   );
 }
 
-/** 底部 Sources chips 条（ChatGPT 风格） */
+/** 底部 Sources chips 条（ChatGPT 风格）；点击用系统默认浏览器打开 */
 function SourcesBar({ sources }: { sources: SourceItem[] }) {
   if (sources.length === 0) return null;
   return (
@@ -231,13 +236,14 @@ function SourcesBar({ sources }: { sources: SourceItem[] }) {
       <span className="turn-sources-label">来源</span>
       <div className="turn-sources-chips">
         {sources.map((s) => (
-          <a
+          <button
             key={s.url}
-            href={s.url}
-            target="_blank"
-            rel="noreferrer noopener"
+            type="button"
             className="source-chip"
             title={`${s.title}\n${s.url}`}
+            onClick={() => {
+              void openInDefaultBrowser(s.url);
+            }}
           >
             <img
               className="source-chip-favicon"
@@ -251,7 +257,7 @@ function SourcesBar({ sources }: { sources: SourceItem[] }) {
               }}
             />
             <span className="source-chip-domain">{s.domain}</span>
-          </a>
+          </button>
         ))}
       </div>
     </div>
@@ -280,6 +286,33 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
     if (isUser) return content;
     return stripModelThinkBlocks(content);
   }, [content, isUser]);
+
+  const markdownComponents = useMemo<Components>(
+    () => ({
+      a: ({ node: _node, href, children, ...rest }) => {
+        if (href && shouldOpenExternally(href)) {
+          return (
+            <a
+              {...rest}
+              href={href}
+              onClick={(e) => {
+                e.preventDefault();
+                void openInDefaultBrowser(href);
+              }}
+            >
+              {children}
+            </a>
+          );
+        }
+        return (
+          <a {...rest} href={href}>
+            {children}
+          </a>
+        );
+      },
+    }),
+    []
+  );
 
   // tool 消息：独占一行的折叠卡片（仅当 UI 选择"单独渲染 tool 消息"时使用，
   // 新聚合路径下 tool 消息会被合并到 assistant 气泡的 steps 里，不会走这里）
@@ -337,7 +370,7 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
           ) : null}
           {hasText ? (
             <div className="message-md message-text">
-              <ReactMarkdown remarkPlugins={[remarkGfm]}>
+              <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
                 {displayText}
               </ReactMarkdown>
             </div>
