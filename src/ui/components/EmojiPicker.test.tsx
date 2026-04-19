@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
-import React, { useRef } from 'react';
+import { useRef } from 'react';
 import { EmojiPicker } from './EmojiPicker';
 
 function EmojiPickerHost({
