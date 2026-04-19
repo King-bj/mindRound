@@ -357,8 +357,6 @@ function App() {
               </div>
             </div>
 
-            <div className="side-section-label">对话</div>
-
             <div className="side-panel-sessions-scroll">
               <SessionsPage
                 chatService={chatService}
@@ -452,6 +450,7 @@ function App() {
                     platformAdapter={platformAdapter}
                     apiRepository={apiRepo}
                     onBack={() => handleTabChange('chats')}
+                    showHeader={false}
                   />
                 </div>
               </div>
@@ -543,6 +542,7 @@ function App() {
                     platformAdapter={platformAdapter}
                     apiRepository={apiRepo}
                     onBack={() => handleTabChange('chats')}
+                    showHeader={false}
                   />
                 </div>
               </div>

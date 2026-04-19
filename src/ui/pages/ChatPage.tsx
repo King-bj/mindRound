@@ -201,10 +201,6 @@ export const ChatPage: React.FC<ChatPageProps> = ({
         </div>
         <div className="chat-page-header-center">
           <h1 className="wechat-header-title chat-page-header-title">{getTitle()}</h1>
-          <div className="chat-page-header-status">
-            <span className="chat-online-dot" aria-hidden />
-            <span>在线</span>
-          </div>
         </div>
         <div className="chat-page-header-right">
           <button
@@ -290,12 +286,12 @@ export const ChatPage: React.FC<ChatPageProps> = ({
         aria-label="聊天消息"
         aria-live="polite"
       >
-        {visibleTurns.map((view, index) => {
+        {visibleTurns.map((view) => {
           const msg = view.bubble;
           const persona = msg.personaId ? personaMap[msg.personaId] : undefined;
           return (
             <MessageBubble
-              key={`${view.key}-${index}`}
+              key={view.key}
               role={msg.role}
               content={view.grouped ? view.content : msg.content}
               timestamp={msg.timestamp}
@@ -326,7 +322,6 @@ export const ChatPage: React.FC<ChatPageProps> = ({
         <ChatInput
           onSend={handleSend}
           disabled={isSending}
-          statusHint={isSending ? '对方正在输入…' : undefined}
         />
       </div>
 

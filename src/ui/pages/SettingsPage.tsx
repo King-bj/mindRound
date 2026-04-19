@@ -12,6 +12,7 @@ interface SettingsPageProps {
   platformAdapter: IPlatformAdapter;
   apiRepository: HttpApiRepository;
   onBack: () => void;
+  showHeader?: boolean;
 }
 
 export const SettingsPage: React.FC<SettingsPageProps> = ({
@@ -19,6 +20,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
   platformAdapter,
   apiRepository,
   onBack,
+  showHeader = true,
 }) => {
   const [formData, setFormData] = useState<AppConfig | null>(null);
   const [isSaving, setIsSaving] = useState(false);
@@ -123,13 +125,15 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
 
   return (
     <div className="settings-page">
-      <header className="page-header">
-        <button type="button" className="back-btn" onClick={onBack}>
-          ←
-        </button>
-        <h1 className="page-title">设置</h1>
-        <div className="header-spacer" />
-      </header>
+      {showHeader ? (
+        <header className="page-header">
+          <button type="button" className="back-btn" onClick={onBack}>
+            ←
+          </button>
+          <h1 className="page-title">设置</h1>
+          <div className="header-spacer" />
+        </header>
+      ) : null}
 
       <div className="settings-form">
         <section className="settings-section">

@@ -189,16 +189,6 @@
   color: var(--accent);
 }
 
-.side-section-label {
-  padding: 4px 16px 8px;
-  font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--tab-inactive);
-  flex-shrink: 0;
-}
-
 .side-panel-sessions-scroll {
   flex: 1;
   min-height: 0;
@@ -861,7 +851,7 @@
   background: var(--content-bg);
 }
 
-/* 聊天顶栏：三栏网格 + 居中标题与在线状态 */
+/* 聊天顶栏：三栏网格 + 居中标题 */
 .chat-page-header.wechat-header {
   display: grid;
   grid-template-columns: 44px 1fr minmax(88px, auto);
@@ -905,23 +895,6 @@
   overflow: hidden;
   text-overflow: ellipsis;
   color: var(--header-text);
-}
-
-.chat-page-header-status {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--accent-2);
-}
-
-.chat-online-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--accent-2);
-  box-shadow: 0 0 0 2px rgba(20, 184, 166, 0.28);
 }
 
 .chat-page-header-icon-muted:disabled {
