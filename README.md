@@ -149,7 +149,8 @@ description: 苹果联合创始人
 
 - [Tauri](https://tauri.app) 让跨平台桌面应用变得轻量可控。
 - OpenAI 兼容协议让自带 Key 的应用能接入绝大多数模型服务。
-- 人物卡灵感来自社区里 `distilled-persona-hall` 的 SKILL 蒸馏思路。
+- 人物卡灵感来自社区里 [distilled-persona-hall](https://github.com/BiscuitCoder/distilled-persona-hall)  。
+- 蒸馏灵感来自于[女娲] (https://github.com/alchaincyf/nuwa-skill)
 
 ---
 
