@@ -1,9 +1,10 @@
 /**
  * 聊天输入组件
- * @description 用户输入消息的输入框组件，支持发送按钮和键盘快捷键
+ * @description 用户输入消息的输入框组件，支持发送按钮、表情选择与键盘快捷键
  */
 import React, { useState, useRef, useCallback } from 'react';
-import { Paperclip, Smile, Send } from './Icons';
+import { Smile, Send } from './Icons';
+import { EmojiPicker } from './EmojiPicker';
 
 interface ChatInputProps {
   /** 发送消息回调 */
@@ -28,7 +29,37 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   statusHint,
 }) => {
   const [value, setValue] = useState('');
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const anchorRef = useRef<HTMLDivElement>(null);
+
+  const resizeTextarea = useCallback(() => {
+    const ta = textareaRef.current;
+    if (!ta) return;
+    ta.style.height = 'auto';
+    ta.style.height = `${Math.min(ta.scrollHeight, 150)}px`;
+  }, []);
+
+  const insertAtCursor = useCallback(
+    (text: string) => {
+      const ta = textareaRef.current;
+      if (!ta || disabled) return;
+
+      const start = ta.selectionStart ?? value.length;
+      const end = ta.selectionEnd ?? value.length;
+      const next = value.slice(0, start) + text + value.slice(end);
+      setValue(next);
+
+      const caret = start + text.length;
+      requestAnimationFrame(() => {
+        if (!textareaRef.current) return;
+        textareaRef.current.focus();
+        textareaRef.current.setSelectionRange(caret, caret);
+        resizeTextarea();
+      });
+    },
+    [value, disabled, resizeTextarea]
+  );
 
   const handleSend = useCallback(() => {
     const trimmed = value.trim();
@@ -37,7 +68,6 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     onSend(trimmed);
     setValue('');
 
-    // 重置 textarea 高度
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto';
     }
@@ -53,34 +83,25 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     [handleSend]
   );
 
-  const handleChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    setValue(e.target.value);
-
-    // 自动调整高度
-    if (textareaRef.current) {
-      textareaRef.current.style.height = 'auto';
-      textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 150)}px`;
-    }
-  }, []);
+  const handleChange = useCallback(
+    (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+      setValue(e.target.value);
+      resizeTextarea();
+    },
+    [resizeTextarea]
+  );
 
   return (
     <div className="chat-input-wrap">
-      <div className="chat-input-container">
+      <div className="chat-input-container" ref={anchorRef}>
         <button
           type="button"
           className="chat-input-icon-btn"
-          aria-label="附件（即将推出）"
-          disabled
-          title="附件"
-        >
-          <Paperclip size={22} strokeWidth={2} />
-        </button>
-        <button
-          type="button"
-          className="chat-input-icon-btn"
-          aria-label="表情（即将推出）"
-          disabled
+          aria-label="表情"
+          aria-expanded={showEmojiPicker}
           title="表情"
+          disabled={disabled}
+          onClick={() => setShowEmojiPicker((v) => !v)}
         >
           <Smile size={22} strokeWidth={2} />
         </button>
@@ -105,6 +126,13 @@ export const ChatInput: React.FC<ChatInputProps> = ({
           <Send size={20} strokeWidth={2.25} />
         </button>
       </div>
+      {showEmojiPicker && !disabled ? (
+        <EmojiPicker
+          anchorRef={anchorRef}
+          onPick={(emoji) => insertAtCursor(emoji)}
+          onClose={() => setShowEmojiPicker(false)}
+        />
+      ) : null}
       {!disabled ? (
         <p className="chat-input-shortcut-hint" aria-hidden="true">
           Enter 发送 · Shift + Enter 换行

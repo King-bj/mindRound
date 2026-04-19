@@ -7,7 +7,7 @@
  *
  * 兼容旧消息：当未提供 `steps` / `sources` 时仍按老路径渲染单条消息。
  */
-import React, { useMemo, useState } from 'react';
+import React, { useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { Components } from 'react-markdown';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -46,6 +46,8 @@ interface MessageBubbleProps {
   sources?: SourceItem[];
   /** 该回合是否仍有未完成的工具调用（尚未拿到 tool 结果） */
   hasRunningStep?: boolean;
+  /** 对话框内搜索：非空时在正文内高亮命中片段（大小写不敏感） */
+  highlight?: string;
 }
 
 /**
@@ -57,6 +59,133 @@ function formatTime(timestamp: string): string {
     hour: '2-digit',
     minute: '2-digit',
   });
+}
+
+/**
+ * 纯文本内高亮搜索词（user 气泡）
+ */
+function highlightPlainText(text: string, query: string): React.ReactNode {
+  const q = query.trim();
+  if (!q) return text;
+  let re: RegExp;
+  try {
+    const esc = q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    re = new RegExp(`(${esc})`, 'gi');
+  } catch {
+    return text;
+  }
+  const parts = text.split(re);
+  return parts.map((part, i) => {
+    if (part === '') return null;
+    if (i % 2 === 1) {
+      return (
+        <mark key={`h-${i}-${part}`} className="chat-search-hit">
+          {part}
+        </mark>
+      );
+    }
+    return <React.Fragment key={`t-${i}`}>{part}</React.Fragment>;
+  });
+}
+
+/**
+ * 将文本节点按正则拆成片段，命中段包在 <mark class="chat-search-hit"> 中
+ */
+function splitTextNodeWithMarks(textNode: Text, re: RegExp): void {
+  const text = textNode.nodeValue ?? '';
+  re.lastIndex = 0;
+  const parts = text.split(re);
+  if (parts.length <= 1) return;
+  const parent = textNode.parentNode;
+  if (!parent) return;
+
+  const frag = document.createDocumentFragment();
+  for (let i = 0; i < parts.length; i++) {
+    const p = parts[i];
+    if (p === '') continue;
+    if (i % 2 === 1) {
+      const mark = document.createElement('mark');
+      mark.className = 'chat-search-hit';
+      mark.appendChild(document.createTextNode(p));
+      frag.appendChild(mark);
+    } else {
+      frag.appendChild(document.createTextNode(p));
+    }
+  }
+  parent.replaceChild(frag, textNode);
+}
+
+/**
+ * 助手 Markdown：先正常渲染，再在 DOM 文本节点中加搜索高亮（不修改 hast，避免 AST 损坏导致白屏）
+ */
+function AssistantMarkdownWithSearchHighlight({
+  markdown,
+  highlight,
+  components,
+}: {
+  markdown: string;
+  highlight?: string;
+  components: Components;
+}) {
+  const rootRef = useRef<HTMLDivElement>(null);
+
+  useLayoutEffect(() => {
+    const root = rootRef.current;
+    if (!root) return;
+
+    root.querySelectorAll('mark.chat-search-hit').forEach((m) => {
+      const t = document.createTextNode(m.textContent ?? '');
+      m.parentNode?.replaceChild(t, m);
+    });
+    root.normalize();
+
+    const q = (highlight ?? '').trim();
+    if (!q) return;
+
+    let re: RegExp;
+    try {
+      const esc = q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      re = new RegExp(`(${esc})`, 'gi');
+    } catch {
+      return;
+    }
+
+    const targetTexts: Text[] = [];
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    let node: Node | null;
+    while ((node = walker.nextNode())) {
+      if (node.nodeType !== Node.TEXT_NODE) continue;
+      const tn = node as Text;
+      const val = tn.nodeValue ?? '';
+      if (!val) continue;
+      re.lastIndex = 0;
+      if (!re.test(val)) continue;
+
+      let el: HTMLElement | null = tn.parentElement;
+      let skip = false;
+      while (el && el !== root) {
+        const tag = el.tagName;
+        if (tag === 'CODE' || tag === 'PRE' || tag === 'SCRIPT' || tag === 'STYLE') {
+          skip = true;
+          break;
+        }
+        el = el.parentElement;
+      }
+      if (!skip) targetTexts.push(tn);
+    }
+
+    for (const tn of targetTexts) {
+      splitTextNodeWithMarks(tn, re);
+    }
+  }, [markdown, highlight, components]);
+
+  return (
+    <div ref={rootRef} className="message-md message-text">
+      <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>
+        {markdown}
+      </ReactMarkdown>
+    </div>
+  );
 }
 
 /**
@@ -278,6 +407,7 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
   steps,
   sources,
   hasRunningStep,
+  highlight,
 }) => {
   const timeStr = formatTime(timestamp);
   const isUser = role === 'user';
@@ -351,7 +481,11 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
   const bubbleBody = (
     <div className={`message-bubble-body ${isUser ? 'user' : 'assistant'}`}>
       {isUser ? (
-        <p className="message-text">{displayText}</p>
+        <p className="message-text">
+          {highlight?.trim()
+            ? highlightPlainText(displayText, highlight)
+            : displayText}
+        </p>
       ) : showTypingPlaceholder ? (
         <div
           className="message-md message-text message-bubble-typing-wrap"
@@ -371,11 +505,19 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
             <StepsBlock steps={steps!} running={running} />
           ) : null}
           {hasText ? (
-            <div className="message-md message-text">
-              <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
-                {displayText}
-              </ReactMarkdown>
-            </div>
+            highlight?.trim() ? (
+              <AssistantMarkdownWithSearchHighlight
+                markdown={displayText}
+                highlight={highlight}
+                components={markdownComponents}
+              />
+            ) : (
+              <div className="message-md message-text">
+                <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
+                  {displayText}
+                </ReactMarkdown>
+              </div>
+            )
           ) : running && !hasSteps ? (
             // 旧路径兜底：有 toolCalls 但没走聚合路径，这里用 running 小标记替代 typing
             <div className="turn-running-hint" role="status" aria-live="polite">

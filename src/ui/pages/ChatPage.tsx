@@ -6,6 +6,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { MessageBubble } from '../components/MessageBubble';
 import { ChatInput } from '../components/ChatInput';
 import { GroupChatInfoPanel } from '../components/groupChatInfoPanel';
+import { PersonaInfoPanel } from '../components/PersonaInfoPanel';
 import { ArrowLeft, MoreHorizontal, Search } from '../components/Icons';
 import type { Chat, MessageDTO } from '../../core/domain/Chat';
 import type { Persona } from '../../core/domain/Persona';
@@ -43,6 +44,9 @@ export const ChatPage: React.FC<ChatPageProps> = ({
   const [isSending, setIsSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showGroupPanel, setShowGroupPanel] = useState(false);
+  const [showSearch, setShowSearch] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [showPersonaPanel, setShowPersonaPanel] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -121,6 +125,19 @@ export const ChatPage: React.FC<ChatPageProps> = ({
    */
   const turnViews = useMemo(() => buildTurnViews(messages), [messages]);
 
+  /** 对话框内搜索：按正文过滤回合视图 */
+  const visibleTurns = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return turnViews;
+    return turnViews.filter((view) => {
+      const text = view.grouped ? view.content : view.bubble.content;
+      return text.toLowerCase().includes(q);
+    });
+  }, [turnViews, searchQuery]);
+
+  const searchHighlight =
+    showSearch && searchQuery.trim().length > 0 ? searchQuery : undefined;
+
   const handleSend = async (content: string) => {
     if (!content.trim() || isSending) return;
 
@@ -192,9 +209,15 @@ export const ChatPage: React.FC<ChatPageProps> = ({
         <div className="chat-page-header-right">
           <button
             type="button"
-            className="wechat-header-btn chat-page-header-icon-muted"
-            aria-label="搜索（即将推出）"
-            disabled
+            className={`wechat-header-btn${showSearch ? '' : ' chat-page-header-icon-muted'}`}
+            aria-label="搜索消息"
+            aria-expanded={showSearch}
+            onClick={() => {
+              setShowSearch((v) => {
+                if (v) setSearchQuery('');
+                return !v;
+              });
+            }}
           >
             <Search size={18} strokeWidth={2} />
           </button>
@@ -211,15 +234,46 @@ export const ChatPage: React.FC<ChatPageProps> = ({
           ) : (
             <button
               type="button"
-              className="wechat-header-btn chat-page-header-icon-muted"
-              aria-label="更多（即将推出）"
-              disabled
+              className="wechat-header-btn"
+              aria-label="作者资料"
+              aria-expanded={showPersonaPanel}
+              onClick={() => setShowPersonaPanel((v) => !v)}
             >
               <MoreHorizontal size={20} strokeWidth={2} />
             </button>
           )}
         </div>
       </header>
+
+      {showSearch ? (
+        <div className="chat-search-bar" role="search">
+          <Search size={16} strokeWidth={2} className="chat-search-icon" aria-hidden />
+          <input
+            type="search"
+            className="chat-search-input"
+            placeholder="搜索消息内容…"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            aria-label="搜索消息内容"
+          />
+          <span className="chat-search-count" aria-live="polite">
+            {searchQuery.trim()
+              ? `匹配 ${visibleTurns.length} 条`
+              : `共 ${turnViews.length} 条`}
+          </span>
+          <button
+            type="button"
+            className="chat-search-close"
+            onClick={() => {
+              setShowSearch(false);
+              setSearchQuery('');
+            }}
+            aria-label="关闭搜索"
+          >
+            ×
+          </button>
+        </div>
+      ) : null}
 
       {error && (
         <div className="chat-error" role="alert">
@@ -236,7 +290,7 @@ export const ChatPage: React.FC<ChatPageProps> = ({
         aria-label="聊天消息"
         aria-live="polite"
       >
-        {turnViews.map((view, index) => {
+        {visibleTurns.map((view, index) => {
           const msg = view.bubble;
           const persona = msg.personaId ? personaMap[msg.personaId] : undefined;
           return (
@@ -253,6 +307,7 @@ export const ChatPage: React.FC<ChatPageProps> = ({
               steps={view.grouped ? view.steps : undefined}
               sources={view.grouped ? view.sources : undefined}
               hasRunningStep={view.grouped ? view.hasRunningStep : undefined}
+              highlight={searchHighlight}
             />
           );
         })}
@@ -282,6 +337,14 @@ export const ChatPage: React.FC<ChatPageProps> = ({
           allPersonas={allPersonas}
           onClose={() => setShowGroupPanel(false)}
           onAddPersonas={handleAddGroupPersonas}
+        />
+      )}
+
+      {chat?.type === 'single' && (
+        <PersonaInfoPanel
+          isOpen={showPersonaPanel}
+          persona={allPersonas.find((p) => p.id === chat.personaIds[0]) ?? null}
+          onClose={() => setShowPersonaPanel(false)}
         />
       )}
     </div>
