@@ -99,6 +99,7 @@ describe('Agent', () => {
       cache,
       getBaseToolContext: async () => ({
         sandboxRoots: ['C:/workspace'],
+        dataDir: 'C:/workspace',
         searchProvider: 'ddg',
         searchApiKey: '',
       }),
@@ -188,6 +189,7 @@ describe('Agent', () => {
       cache,
       getBaseToolContext: async () => ({
         sandboxRoots: ['C:/workspace'],
+        dataDir: 'C:/workspace',
         searchProvider: 'ddg',
         searchApiKey: '',
       }),
@@ -252,6 +254,7 @@ describe('Agent', () => {
       cache,
       getBaseToolContext: async () => ({
         sandboxRoots: ['C:/workspace'],
+        dataDir: 'C:/workspace',
         searchProvider: 'ddg',
         searchApiKey: '',
       }),
@@ -323,6 +326,7 @@ describe('Agent', () => {
       cache,
       getBaseToolContext: async () => ({
         sandboxRoots: ['C:/w'],
+        dataDir: 'C:/w',
         searchProvider: 'ddg',
         searchApiKey: '',
       }),

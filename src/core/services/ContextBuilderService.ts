@@ -1,10 +1,15 @@
 /**
  * 上下文构建服务
- * @description 按 30 分钟时间窗 + 人物卡 + 记忆，组装供 Agent 或 LLM 直调的上下文；
+ * @description 按 Agent Skills 协议拼装 system prompt：
+ * - Level 1 = 当前激活 Skill 的 discovery card（id / name / description）
+ * - Level 2 = 当前激活 Skill 的 SKILL.md 正文
+ * - 圆桌中追加 [OTHERS PRESENT]：其他在场者的 discovery card 列表（不暴露正文）
+ * - 圆桌中追加 [ROUNDTABLE SCENE]：场景说明 + 收尾 finalInstruction
  * 群聊走圆桌映射：他人发言转成 user [名字]: 前缀；tool 轨迹一律过滤掉
  */
 import type { Chat } from '../domain/Chat';
 import type { MessageDTO } from '../domain/Chat';
+import type { Persona } from '../domain/Persona';
 import type { IChatRepository } from '../repositories/IChatRepository';
 import type { IPersonaRepository } from '../repositories/IPersonaRepository';
 import { DEFAULT_TIME_WINDOW_MINUTES } from '../utils/constants';
@@ -34,8 +39,10 @@ export interface Context {
   messages: MessageDTO[];
   /** 记忆内容 */
   memory: string;
-  /** 人格 SKILL 内容 */
+  /** 人格 SKILL 正文（仅用于调试/兼容；最终注入用 system） */
   skill: string;
+  /** 已按协议拼装好的 system prompt，可直接喂给 Agent */
+  system: string;
 }
 
 /**
@@ -44,9 +51,78 @@ export interface Context {
 export interface GroupRoundContext {
   /** 已圆桌映射的 MessageDTO（末尾含 finalInstruction 作为 user 消息） */
   messages: MessageDTO[];
-  /** system：人格 SKILL + 圆桌场景说明 */
+  /** system：[SKILL ACTIVE] + Level 2 + [OTHERS PRESENT] + [ROUNDTABLE SCENE] + 日期 */
   system: string;
 }
+
+// ===================== Skill protocol blocks =====================
+
+/**
+ * Level 1 + Level 2 头块：标记当前激活的 Skill 并附其正文
+ * @description 让模型清晰知道"我现在扮演谁"+ 正文从哪里开始
+ */
+export function buildSkillActiveBlock(persona: Persona, skillBody: string): string {
+  const head =
+    `[SKILL ACTIVE]\n` +
+    `id: ${persona.id}\n` +
+    `name: ${persona.name}\n` +
+    (persona.description ? `description: ${oneLine(persona.description)}\n` : '');
+  const body = skillBody.trim();
+  return body.length > 0 ? `${head}\n${body}` : head;
+}
+
+/**
+ * 圆桌中其他在场者的 discovery card 列表（仅 Level 1，无正文）
+ * @description 让模型知道"还有谁在听"，但不被他们的长文档污染身份
+ */
+export function buildOthersPresentBlock(others: Persona[]): string {
+  if (others.length === 0) return '';
+  const lines = others.map((p) => {
+    const desc = p.description ? `: ${oneLine(p.description)}` : '';
+    return `- ${p.id} (${p.name})${desc}`;
+  });
+  return (
+    `[OTHERS PRESENT]\n` +
+    `${lines.join('\n')}\n` +
+    `（如需引述/反驳他人，可用 list_skill_resources / read_skill_resource ` +
+    `读取其 references / examples；不得冒充其身份发言。）`
+  );
+}
+
+/**
+ * 圆桌场景固定说明（被听众 + 在场者构成）
+ */
+export function buildRoundtableSceneBlock(
+  personaName: string,
+  otherPersonaNames: string
+): string {
+  return (
+    `[ROUNDTABLE SCENE]\n` +
+    `你现在身处一个名为「圆桌会谈」的多人群聊中。\n` +
+    `你正在扮演：${personaName}。\n` +
+    `你的听众既包括提出问题的[观众]，也包括其他几位正在旁听你发言的人格：${otherPersonaNames}。\n` +
+    `请确保你的发言首先是说给[观众]听的答案，但你的语气和内容可以包含对其他在场者的回应。`
+  );
+}
+
+/**
+ * 长期记忆插入块（单聊用）
+ */
+export function buildMemoryBlock(memory: string): string {
+  const m = memory.trim();
+  if (!m) return '';
+  return `[MEMORY]\n${m}`;
+}
+
+function oneLine(s: string): string {
+  return s.replace(/\s*\n+\s*/g, ' ').trim();
+}
+
+function joinBlocks(blocks: string[]): string {
+  return blocks.filter((b) => b && b.trim().length > 0).join('\n\n');
+}
+
+// ===================== 圆桌 finalInstruction =====================
 
 /**
  * 圆桌模式收尾 user 指令：硬约束答用户 + 软引导交锋
@@ -152,24 +228,6 @@ export function getLastUserMessageContent(messages: MessageDTO[]): string {
   return '';
 }
 
-/** 置于 SKILL 正文之前，避免长人格文档淹没「本轮是谁」 */
-function buildRoundtableSystemLead(personaName: string, otherPersonaNames: string): string {
-  return `[圆桌身份 — 必读]
-本轮你唯一对应的角色是「${personaName}」。其他在场者仅作语境参考：${otherPersonaNames}。禁止在输出中混淆或冒用他人身份。
-
-`;
-}
-
-function buildRoundtableSystemAppend(personaName: string, otherPersonaNames: string): string {
-  return `
-
-[系统场景说明]
-你现在身处一个名为「圆桌会谈」的多人群聊中。
-你正在扮演：${personaName}。
-你的听众既包括提出问题的[观众]，也包括其他几位正在旁听你发言的人格：${otherPersonaNames}。
-请确保你的发言首先是说给[观众]听的答案，但你的语气和内容可以包含对其他在场者的回应。`;
-}
-
 export class ContextBuilderService {
   constructor(
     private chatRepo: IChatRepository,
@@ -178,11 +236,24 @@ export class ContextBuilderService {
   ) {}
 
   /**
-   * 为单聊构建上下文
+   * 为单聊构建上下文 + 已拼装的 system prompt
+   * @description system 结构：
+   *   [SKILL ACTIVE] head + Level 2 body
+   *   [MEMORY]（若有）
+   *   日期指令
    */
   async buildForChat(chat: Chat): Promise<Context> {
     const personaId = chat.personaIds[0];
-    return this.buildContext(chat.id, personaId);
+    const ctx = await this.buildContext(chat.id, personaId);
+
+    const persona = await this.personaRepo.findById(personaId);
+    const skillBlock = persona
+      ? buildSkillActiveBlock(persona, ctx.skill)
+      : ctx.skill; // 兜底：找不到 manifest 时退化为旧行为
+    const memoryBlock = buildMemoryBlock(ctx.memory);
+    const system = joinBlocks([skillBlock, memoryBlock, buildDateInstruction()]);
+
+    return { ...ctx, system };
   }
 
   /**
@@ -190,11 +261,23 @@ export class ContextBuilderService {
    * @deprecated Agent 圆桌请用 `buildGroupRoundContext`；单聊式「仅换 persona」读历史时仍可用
    */
   async buildForGroup(chat: Chat, currentPersonaId: string): Promise<Context> {
-    return this.buildContext(chat.id, currentPersonaId);
+    const ctx = await this.buildContext(chat.id, currentPersonaId);
+    const persona = await this.personaRepo.findById(currentPersonaId);
+    const skillBlock = persona
+      ? buildSkillActiveBlock(persona, ctx.skill)
+      : ctx.skill;
+    const memoryBlock = buildMemoryBlock(ctx.memory);
+    const system = joinBlocks([skillBlock, memoryBlock, buildDateInstruction()]);
+    return { ...ctx, system };
   }
 
   /**
    * 构建群聊单轮「圆桌」Agent 上下文
+   * @description system 结构：
+   *   [SKILL ACTIVE] head + Level 2 body
+   *   [OTHERS PRESENT] discovery cards
+   *   [ROUNDTABLE SCENE] 场景说明
+   *   日期指令
    */
   async buildGroupRoundContext(
     chat: Chat,
@@ -203,20 +286,42 @@ export class ContextBuilderService {
     personaDisplayNames: Record<string, string>
   ): Promise<GroupRoundContext> {
     const rawMessages = await this.buildMessageContext(chat.id);
-    const skill = this.options.includeSkill
+    const skillBody = this.options.includeSkill
       ? await this.personaRepo.getSkillContent(currentPersonaId)
       : '';
 
-    const personaName = personaDisplayNames[currentPersonaId] ?? currentPersonaId;
-    const otherIds = chat.personaIds.filter((id) => id !== currentPersonaId);
-    const otherNames =
-      otherIds.map((id) => personaDisplayNames[id] ?? id).join('、') || '（暂无）';
+    const allPersonas = await this.personaRepo.findAll();
+    const personaById = new Map(allPersonas.map((p) => [p.id, p] as const));
 
-    const system =
-      buildRoundtableSystemLead(personaName, otherNames) +
-      skill +
-      buildRoundtableSystemAppend(personaName, otherNames) +
-      `\n\n${buildDateInstruction()}`;
+    const currentPersona = personaById.get(currentPersonaId) ?? {
+      id: currentPersonaId,
+      name: personaDisplayNames[currentPersonaId] ?? currentPersonaId,
+      description: '',
+      avatar: null,
+      tags: [],
+    };
+    const otherIds = chat.personaIds.filter((id) => id !== currentPersonaId);
+    const others: Persona[] = otherIds.map(
+      (id) =>
+        personaById.get(id) ?? {
+          id,
+          name: personaDisplayNames[id] ?? id,
+          description: '',
+          avatar: null,
+          tags: [],
+        }
+    );
+    const otherNames = others.map((p) => p.name).join('、') || '（暂无）';
+
+    const skillBlock = buildSkillActiveBlock(currentPersona, skillBody);
+    const othersBlock = buildOthersPresentBlock(others);
+    const sceneBlock = buildRoundtableSceneBlock(currentPersona.name, otherNames);
+    const system = joinBlocks([
+      skillBlock,
+      othersBlock,
+      sceneBlock,
+      buildDateInstruction(),
+    ]);
 
     const mapped = mapGroupHistoryToAgentMessages(
       rawMessages,
@@ -230,7 +335,7 @@ export class ContextBuilderService {
       speakerOrderIndex,
       userQuestion,
       prevName,
-      personaName
+      currentPersona.name
     );
 
     return {
@@ -246,7 +351,10 @@ export class ContextBuilderService {
     };
   }
 
-  private async buildContext(chatId: string, personaId: string): Promise<Context> {
+  private async buildContext(
+    chatId: string,
+    personaId: string
+  ): Promise<Omit<Context, 'system'>> {
     const [messages, memory, skill] = await Promise.all([
       this.buildMessageContext(chatId),
       this.options.includeMemory ? this.chatRepo.getMemory(chatId) : Promise.resolve(''),

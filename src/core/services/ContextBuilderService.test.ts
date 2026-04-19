@@ -3,11 +3,17 @@
  */
 import { describe, it, expect } from 'vitest';
 import {
+  ContextBuilderService,
   buildFinalInstruction,
+  buildOthersPresentBlock,
+  buildSkillActiveBlock,
   mapGroupHistoryToAgentMessages,
   getLastUserMessageContent,
 } from './ContextBuilderService';
-import type { MessageDTO } from '../domain/Chat';
+import type { Chat, MessageDTO } from '../domain/Chat';
+import type { Persona } from '../domain/Persona';
+import type { IChatRepository } from '../repositories/IChatRepository';
+import type { IPersonaRepository } from '../repositories/IPersonaRepository';
 
 describe('buildFinalInstruction', () => {
   const who = 'Paul Graham';
@@ -121,5 +127,236 @@ describe('getLastUserMessageContent', () => {
         { role: 'user', content: '最后', timestamp: '3' },
       ])
     ).toBe('最后');
+  });
+});
+
+// ===================== Skill protocol blocks =====================
+
+function makePersona(id: string, name: string, description = ''): Persona {
+  return { id, name, description, avatar: null, tags: [] };
+}
+
+describe('buildSkillActiveBlock', () => {
+  it('包含 [SKILL ACTIVE] 头与 SKILL 正文', () => {
+    const p = makePersona('pg-skill', 'Paul Graham', '创业 essayist');
+    const out = buildSkillActiveBlock(p, '正文一行');
+    expect(out).toContain('[SKILL ACTIVE]');
+    expect(out).toContain('id: pg-skill');
+    expect(out).toContain('name: Paul Graham');
+    expect(out).toContain('description: 创业 essayist');
+    expect(out).toContain('正文一行');
+  });
+
+  it('description 多行被压成一行', () => {
+    const p = makePersona('x', 'X', '第一行\n第二行');
+    const out = buildSkillActiveBlock(p, '');
+    expect(out).toContain('description: 第一行 第二行');
+  });
+});
+
+describe('buildOthersPresentBlock', () => {
+  it('空列表返回空串', () => {
+    expect(buildOthersPresentBlock([])).toBe('');
+  });
+
+  it('多人时一人一行，含 id / name / description', () => {
+    const out = buildOthersPresentBlock([
+      makePersona('a', 'Alpha', 'alpha desc'),
+      makePersona('b', 'Beta', 'beta desc'),
+    ]);
+    expect(out).toContain('[OTHERS PRESENT]');
+    expect(out).toContain('- a (Alpha): alpha desc');
+    expect(out).toContain('- b (Beta): beta desc');
+    expect(out).toContain('list_skill_resources');
+    expect(out).toContain('read_skill_resource');
+    // 不应包含 SKILL.md 正文
+    expect(out).not.toContain('正文');
+  });
+});
+
+// ===================== ContextBuilderService 集成 =====================
+
+interface Stores {
+  messagesByChat: Record<string, MessageDTO[]>;
+  memoryByChat: Record<string, string>;
+  personas: Persona[];
+  skills: Record<string, string>;
+}
+
+function makeChatRepo(stores: Stores): IChatRepository {
+  return {
+    async create() {
+      throw new Error('n/a');
+    },
+    async findById() {
+      return null;
+    },
+    async findAll() {
+      return [];
+    },
+    async update() {},
+    async delete() {},
+    async addMessage() {},
+    async getMessages(chatId: string) {
+      return stores.messagesByChat[chatId] ?? [];
+    },
+    async getMemory(chatId: string) {
+      return stores.memoryByChat[chatId] ?? '';
+    },
+    async updateMemory() {},
+    async getSpeakerIndex() {
+      return 0;
+    },
+    async updateSpeakerIndex() {},
+    async findByPersona() {
+      return [];
+    },
+    async findRecent() {
+      return [];
+    },
+  };
+}
+
+function makePersonaRepo(stores: Stores): IPersonaRepository {
+  return {
+    async scan() {
+      return stores.personas;
+    },
+    async findAll() {
+      return stores.personas;
+    },
+    async findById(id: string) {
+      return stores.personas.find((p) => p.id === id) ?? null;
+    },
+    async getSkillContent(id: string) {
+      return stores.skills[id] ?? '';
+    },
+    async listSkillResources() {
+      return [];
+    },
+    async readSkillResource() {
+      throw new Error('n/a');
+    },
+    async delete() {},
+  };
+}
+
+function buildChat(overrides: Partial<Chat> = {}): Chat {
+  const now = new Date().toISOString();
+  return {
+    id: 'chat-1',
+    type: 'group',
+    title: '圆桌',
+    personaIds: ['a', 'b', 'c'],
+    currentSpeakerIndex: 0,
+    createdAt: now,
+    updatedAt: now,
+    ...overrides,
+  };
+}
+
+describe('ContextBuilderService.buildForChat (单聊)', () => {
+  it('system 含 [SKILL ACTIVE] 与 SKILL 正文，不含 [OTHERS PRESENT] / [ROUNDTABLE SCENE]', async () => {
+    const stores: Stores = {
+      messagesByChat: { 'chat-s': [] },
+      memoryByChat: { 'chat-s': '' },
+      personas: [makePersona('pg', 'Paul Graham', 'essayist')],
+      skills: { pg: 'SKILL 正文 PG' },
+    };
+    const builder = new ContextBuilderService(
+      makeChatRepo(stores),
+      makePersonaRepo(stores)
+    );
+    const chat = buildChat({ id: 'chat-s', type: 'single', personaIds: ['pg'] });
+    const ctx = await builder.buildForChat(chat);
+    expect(ctx.system).toContain('[SKILL ACTIVE]');
+    expect(ctx.system).toContain('id: pg');
+    expect(ctx.system).toContain('SKILL 正文 PG');
+    expect(ctx.system).not.toContain('[OTHERS PRESENT]');
+    expect(ctx.system).not.toContain('[ROUNDTABLE SCENE]');
+  });
+
+  it('memory 非空时 system 含 [MEMORY] 块', async () => {
+    const stores: Stores = {
+      messagesByChat: { 'chat-s': [] },
+      memoryByChat: { 'chat-s': '记得用户偏好简短回答' },
+      personas: [makePersona('pg', 'PG')],
+      skills: { pg: '正文' },
+    };
+    const builder = new ContextBuilderService(
+      makeChatRepo(stores),
+      makePersonaRepo(stores)
+    );
+    const chat = buildChat({ id: 'chat-s', type: 'single', personaIds: ['pg'] });
+    const ctx = await builder.buildForChat(chat);
+    expect(ctx.system).toContain('[MEMORY]');
+    expect(ctx.system).toContain('记得用户偏好简短回答');
+  });
+});
+
+describe('ContextBuilderService.buildGroupRoundContext (圆桌)', () => {
+  const stores: Stores = {
+    messagesByChat: {
+      'chat-g': [{ role: 'user', content: '请讨论 X', timestamp: new Date().toISOString() }],
+    },
+    memoryByChat: {},
+    personas: [
+      makePersona('pg', 'Paul Graham', 'essayist'),
+      makePersona('jobs', 'Steve Jobs', 'designer'),
+      makePersona('feynman', 'Feynman', 'physicist'),
+    ],
+    skills: {
+      pg: 'PG SKILL 正文',
+      jobs: 'JOBS SKILL 正文',
+      feynman: 'FEYNMAN SKILL 正文',
+    },
+  };
+
+  function makeBuilder() {
+    return new ContextBuilderService(
+      makeChatRepo(stores),
+      makePersonaRepo(stores)
+    );
+  }
+
+  it('当前发言人正文进入 system，其他人仅以 discovery card 出现', async () => {
+    const builder = makeBuilder();
+    const chat = buildChat({ id: 'chat-g', personaIds: ['pg', 'jobs', 'feynman'] });
+    const ctx = await builder.buildGroupRoundContext(chat, 'pg', 0, {
+      pg: 'Paul Graham',
+      jobs: 'Steve Jobs',
+      feynman: 'Feynman',
+    });
+    expect(ctx.system).toContain('[SKILL ACTIVE]');
+    expect(ctx.system).toContain('id: pg');
+    expect(ctx.system).toContain('PG SKILL 正文');
+    expect(ctx.system).toContain('[OTHERS PRESENT]');
+    expect(ctx.system).toContain('- jobs (Steve Jobs)');
+    expect(ctx.system).toContain('- feynman (Feynman)');
+    // 关键不变量：他人 SKILL 正文不应出现在 system 中
+    expect(ctx.system).not.toContain('JOBS SKILL 正文');
+    expect(ctx.system).not.toContain('FEYNMAN SKILL 正文');
+  });
+
+  it('包含 [ROUNDTABLE SCENE] 与 finalInstruction 末条', async () => {
+    const builder = makeBuilder();
+    const chat = buildChat({ id: 'chat-g', personaIds: ['pg', 'jobs'] });
+    const ctx = await builder.buildGroupRoundContext(chat, 'jobs', 1, {
+      pg: 'Paul Graham',
+      jobs: 'Steve Jobs',
+    });
+    expect(ctx.system).toContain('[ROUNDTABLE SCENE]');
+    expect(ctx.system).toContain('Steve Jobs');
+    const last = ctx.messages[ctx.messages.length - 1];
+    expect(last.role).toBe('user');
+    expect(last.content).toContain('身份锁定');
+    expect(last.content).toContain('Steve Jobs');
+  });
+
+  it('独自一人圆桌时 [OTHERS PRESENT] 块缺省', async () => {
+    const builder = makeBuilder();
+    const chat = buildChat({ id: 'chat-g', personaIds: ['pg'] });
+    const ctx = await builder.buildGroupRoundContext(chat, 'pg', 0, { pg: 'PG' });
+    expect(ctx.system).not.toContain('[OTHERS PRESENT]');
   });
 });

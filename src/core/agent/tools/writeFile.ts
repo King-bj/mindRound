@@ -3,6 +3,7 @@
  */
 import type { ITool, ToolRunContext } from '../types';
 import { invoke } from '../invoke';
+import { resolveToolPath } from './pathResolve';
 
 interface Args {
   path: string;
@@ -25,14 +26,15 @@ export const writeFileTool: ITool<Args> = {
   permission: 'write',
   cacheable: false,
   async run(args: Args, ctx: ToolRunContext): Promise<string> {
+    const resolvedPath = await resolveToolPath(args.path, ctx.dataDir, 'write');
     const bytes = await invoke<number>('agent_write_file', {
       args: {
-        path: args.path,
+        path: resolvedPath,
         content: args.content,
         allow_outside_sandbox: ctx.allowOutsideSandbox,
         sandbox_roots: ctx.sandboxRoots,
       },
     });
-    return `已写入 ${args.path}（${bytes} 字节）`;
+    return `已写入 ${resolvedPath}（${bytes} 字节）`;
   },
 };

@@ -1,6 +1,8 @@
 /**
- * 人格实体
- * @description 表示一个作者人格，包含名称、描述和技能文件
+ * 人格实体（Skill Discovery Card / Manifest）
+ * @description 对应 Anthropic Agent Skills 协议中的 Level 1 信息：
+ * 仅 frontmatter 中的 name + description + tags 等元数据，不含 SKILL.md 正文。
+ * 圆桌中其他在场者只暴露这层信息，避免长文本互相污染。
  */
 export interface Persona {
   /** 人格 ID（目录名） */
@@ -13,6 +15,70 @@ export interface Persona {
   avatar: string | null;
   /** 标签列表 */
   tags: string[];
+}
+
+/**
+ * Skill Level 3 资源元数据
+ * @description references/** 与 examples/** 下的可按需读取文件。
+ * 通过 list_skill_resources / read_skill_resource 工具暴露给模型。
+ * 不携带 size 字段以避免列举时的额外 IO；read_skill_resource 自带上限。
+ */
+export interface SkillResource {
+  /** 资源类别：references 表示研究材料，examples 表示示例对话/输出 */
+  kind: 'reference' | 'example';
+  /** 相对 skill 目录的路径，如 "references/research/01-writings.md" */
+  relPath: string;
+}
+
+/**
+ * Skill 资源根目录前缀白名单
+ * @description Level 3 仅允许从 references/ 与 examples/ 读取，避免
+ * 模型通过相对路径越界访问其他人格目录或宿主敏感文件。
+ */
+export const SKILL_RESOURCE_ROOTS = ['references', 'examples'] as const;
+
+/**
+ * 校验 Skill 资源相对路径合法性，非法时抛错
+ * @description 防御点：
+ * - 必须是相对路径（拒绝绝对路径 / 盘符 / 反斜杠）
+ * - 不允许 `..` 段做路径穿越
+ * - 必须以 references/ 或 examples/ 开头
+ * - 至少要有一段子路径（不能裸目录）
+ * @param relPath - 调用者提供的相对路径
+ */
+export function assertSafeSkillResourcePath(relPath: string): void {
+  if (typeof relPath !== 'string') {
+    throw new Error('skill resource path 必须是字符串');
+  }
+  const trimmed = relPath.trim();
+  if (trimmed === '') {
+    throw new Error('skill resource path 不可为空');
+  }
+  if (trimmed.includes('\\')) {
+    throw new Error(`skill resource path 不允许反斜杠：${relPath}`);
+  }
+  if (trimmed.startsWith('/')) {
+    throw new Error(`skill resource path 必须为相对路径：${relPath}`);
+  }
+  // 拒绝 Windows 盘符（C:）
+  if (/^[a-zA-Z]:/.test(trimmed)) {
+    throw new Error(`skill resource path 必须为相对路径：${relPath}`);
+  }
+  const segments = trimmed.split('/');
+  for (const seg of segments) {
+    if (seg === '' || seg === '.' || seg === '..') {
+      throw new Error(`skill resource path 含非法段「${seg}」：${relPath}`);
+    }
+  }
+  const root = segments[0];
+  if (!(SKILL_RESOURCE_ROOTS as readonly string[]).includes(root)) {
+    throw new Error(
+      `skill resource path 必须以 ${SKILL_RESOURCE_ROOTS.join(' / ')} 开头：${relPath}`
+    );
+  }
+  if (segments.length < 2) {
+    throw new Error(`skill resource path 缺少子路径：${relPath}`);
+  }
 }
 
 /**

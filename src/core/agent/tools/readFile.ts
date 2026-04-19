@@ -3,6 +3,7 @@
  */
 import type { ITool, ToolRunContext } from '../types';
 import { invoke } from '../invoke';
+import { resolveToolPath } from './pathResolve';
 
 interface Args {
   path: string;
@@ -19,13 +20,16 @@ interface ReadResult {
 export const readFileTool: ITool<Args> = {
   name: 'read_file',
   description:
-    '读取指定路径的文件内容（文本按原文返回，二进制返回 hex 预览）。sandbox 外的路径需要用户弹框确认。',
+    '读取指定路径的文件内容（文本按原文返回，二进制返回 hex 预览）。' +
+    '相对路径默认在数据目录内查找：含子目录的相对路径直接拼接，纯文件名会在数据目录下递归匹配（多个同名文件时取修改时间最新的一个）；' +
+    'sandbox 外的绝对路径需要用户弹框确认。',
   parameters: {
     type: 'object',
     properties: {
       path: {
         type: 'string',
-        description: '绝对或相对路径；相对路径以应用工作目录解析',
+        description:
+          '绝对路径，或数据目录相对路径，或纯文件名（会在数据目录下递归查找）',
       },
     },
     required: ['path'],
@@ -34,9 +38,10 @@ export const readFileTool: ITool<Args> = {
   permission: 'readonly-sandbox',
   cacheable: true,
   async run(args: Args, ctx: ToolRunContext): Promise<string> {
+    const resolvedPath = await resolveToolPath(args.path, ctx.dataDir, 'read');
     const r = await invoke<ReadResult>('agent_read_file', {
       args: {
-        path: args.path,
+        path: resolvedPath,
         allow_outside_sandbox: ctx.allowOutsideSandbox,
         sandbox_roots: ctx.sandboxRoots,
       },

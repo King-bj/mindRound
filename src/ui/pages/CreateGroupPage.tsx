@@ -7,6 +7,7 @@ import type { Persona } from '../../core/domain/Persona';
 import type { IChatService } from '../../core/services/ChatService';
 import type { IPersonaRepository } from '../../core/repositories/IPersonaRepository';
 import { Search, X, ArrowLeft } from '../components/Icons';
+import { toAvatarDisplayUrl } from '../utils/avatarUrl';
 
 interface CreateGroupPageProps {
   chatService: IChatService;
@@ -136,11 +137,14 @@ export const CreateGroupPage: React.FC<CreateGroupPageProps> = ({
                       {isSelected ? '✓' : ''}
                     </span>
                     <div className="create-group-avatar">
-                      {persona.avatar ? (
-                        <img src={persona.avatar} alt="" />
-                      ) : (
-                        <span>{persona.name[0] || '?'}</span>
-                      )}
+                      {(() => {
+                        const url = toAvatarDisplayUrl(persona.avatar);
+                        return url ? (
+                          <img src={url} alt="" />
+                        ) : (
+                          <span>{persona.name[0] || '?'}</span>
+                        );
+                      })()}
                     </div>
                     <span className="create-group-contact-name">{persona.name}</span>
                   </button>
@@ -167,7 +171,10 @@ export const CreateGroupPage: React.FC<CreateGroupPageProps> = ({
               {selectedOrdered.map((p) => (
                 <li key={p.id} className="create-group-selected-item">
                   <div className="create-group-avatar small">
-                    {p.avatar ? <img src={p.avatar} alt="" /> : <span>{p.name[0] || '?'}</span>}
+                    {(() => {
+                      const url = toAvatarDisplayUrl(p.avatar);
+                      return url ? <img src={url} alt="" /> : <span>{p.name[0] || '?'}</span>;
+                    })()}
                   </div>
                   <span className="create-group-selected-name">{p.name}</span>
                   <button

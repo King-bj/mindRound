@@ -5,6 +5,7 @@
 import React from 'react';
 import type { Persona } from '../../core/domain/Persona';
 import { User } from './Icons';
+import { toAvatarDisplayUrl } from '../utils/avatarUrl';
 
 export interface PersonaListProps {
   /** 人格列表 */
@@ -69,11 +70,14 @@ export const PersonaList: React.FC<PersonaListProps> = ({
           aria-label={`与 ${persona.name} 开始对话`}
         >
           <div className="wechat-avatar" aria-hidden="true">
-            {persona.avatar ? (
-              <img src={persona.avatar} alt="" />
-            ) : (
-              <User size={20} strokeWidth={1.75} />
-            )}
+            {(() => {
+              const url = toAvatarDisplayUrl(persona.avatar);
+              return url ? (
+                <img src={url} alt="" />
+              ) : (
+                <User size={20} strokeWidth={1.75} />
+              );
+            })()}
           </div>
           <div className="wechat-list-info">
             <span className="wechat-list-name">{persona.name}</span>

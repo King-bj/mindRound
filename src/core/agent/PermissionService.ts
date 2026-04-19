@@ -8,6 +8,7 @@
  * UI 层通过设置 `confirmHandler` 注入真正的弹框实现。
  */
 import type { ITool, ToolPermission } from './types';
+import { isAbsolutePath } from './tools/pathResolve';
 
 /** 用户对某次 confirm 的决策 */
 export type PermissionDecision = 'once' | 'session' | 'deny';
@@ -58,8 +59,12 @@ export class PermissionService implements IPermissionService {
 
       case 'readonly-sandbox': {
         const path = getStringArg(args, 'path');
+        // 空路径或相对路径：工具 run 中会基于数据目录归一化，等价于沙箱内
+        if (!path || !isAbsolutePath(path)) {
+          return { allowed: true, allowOutsideSandbox: false };
+        }
         const roots = await this.getSandboxRoots();
-        if (path && isInsideAnyRoot(path, roots)) {
+        if (isInsideAnyRoot(path, roots)) {
           return { allowed: true, allowOutsideSandbox: false };
         }
         const key = `${tool.name}:${pathScopeKey(path)}`;
@@ -72,6 +77,10 @@ export class PermissionService implements IPermissionService {
 
       case 'write': {
         const path = getStringArg(args, 'path');
+        // 相对路径：工具 run 中归一化到数据目录内，等价于沙箱内写入，跳过弹框
+        if (path && !isAbsolutePath(path)) {
+          return { allowed: true, allowOutsideSandbox: false };
+        }
         const key = `${tool.name}:${pathScopeKey(path)}`;
         return this.authorizeWithSessionKey(tool, args, {
           sessionKey: key,

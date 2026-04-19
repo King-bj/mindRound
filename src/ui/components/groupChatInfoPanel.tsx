@@ -6,6 +6,7 @@ import React, { useState, useMemo } from 'react';
 import type { Chat } from '../../core/domain/Chat';
 import type { Persona } from '../../core/domain/Persona';
 import { X, Plus, Search } from './Icons';
+import { toAvatarDisplayUrl } from '../utils/avatarUrl';
 
 export interface GroupChatInfoPanelProps {
   /** 是否显示 */
@@ -123,7 +124,10 @@ export const GroupChatInfoPanel: React.FC<GroupChatInfoPanelProps> = ({
               {members.map((p) => (
                 <li key={p.id} className="group-info-member-row">
                   <div className="group-info-avatar">
-                    {p.avatar ? <img src={p.avatar} alt="" /> : <span>{p.name[0] || '?'}</span>}
+                    {(() => {
+                      const url = toAvatarDisplayUrl(p.avatar);
+                      return url ? <img src={url} alt="" /> : <span>{p.name[0] || '?'}</span>;
+                    })()}
                   </div>
                   <span className="group-info-member-name">{p.name}</span>
                 </li>
@@ -171,7 +175,10 @@ export const GroupChatInfoPanel: React.FC<GroupChatInfoPanelProps> = ({
                         {checked ? '✓' : ''}
                       </span>
                       <div className="group-info-avatar small">
-                        {p.avatar ? <img src={p.avatar} alt="" /> : <span>{p.name[0] || '?'}</span>}
+                        {(() => {
+                          const url = toAvatarDisplayUrl(p.avatar);
+                          return url ? <img src={url} alt="" /> : <span>{p.name[0] || '?'}</span>;
+                        })()}
                       </div>
                       <span className="group-info-member-name">{p.name}</span>
                     </button>

@@ -3,6 +3,7 @@
  */
 import type { ITool, ToolRunContext } from '../types';
 import { invoke } from '../invoke';
+import { resolveToolPath } from './pathResolve';
 
 interface Args {
   path: string;
@@ -42,9 +43,10 @@ export const updateFileTool: ITool<Args> = {
   permission: 'write',
   cacheable: false,
   async run(args: Args, ctx: ToolRunContext): Promise<string> {
+    const resolvedPath = await resolveToolPath(args.path, ctx.dataDir, 'read');
     const r = await invoke<UpdateResult>('agent_update_file', {
       args: {
-        path: args.path,
+        path: resolvedPath,
         old_string: args.oldString,
         new_string: args.newString,
         replace_all: args.replaceAll ?? false,
@@ -52,6 +54,6 @@ export const updateFileTool: ITool<Args> = {
         sandbox_roots: ctx.sandboxRoots,
       },
     });
-    return `已替换 ${r.replacements} 处（${args.path}）`;
+    return `已替换 ${r.replacements} 处（${resolvedPath}）`;
   },
 };

@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   parseSkillFrontmatter,
   createPersonaFromSkill,
+  assertSafeSkillResourcePath,
 } from './Persona';
 
 describe('Persona', () => {
@@ -174,6 +175,65 @@ Content`;
       const persona = createPersonaFromSkill('test', contentNoTags, null);
 
       expect(persona.tags).toEqual([]);
+    });
+  });
+
+  describe('assertSafeSkillResourcePath', () => {
+    it('accepts a typical references path', () => {
+      expect(() =>
+        assertSafeSkillResourcePath('references/research/01-writings.md')
+      ).not.toThrow();
+    });
+
+    it('accepts a typical examples path', () => {
+      expect(() =>
+        assertSafeSkillResourcePath('examples/demo-conversation.md')
+      ).not.toThrow();
+    });
+
+    it('rejects empty / whitespace path', () => {
+      expect(() => assertSafeSkillResourcePath('')).toThrow(/不可为空/);
+      expect(() => assertSafeSkillResourcePath('   ')).toThrow(/不可为空/);
+    });
+
+    it('rejects paths containing parent traversal segments', () => {
+      expect(() =>
+        assertSafeSkillResourcePath('references/../etc/passwd')
+      ).toThrow(/非法段/);
+      expect(() => assertSafeSkillResourcePath('references/./hidden.md')).toThrow(
+        /非法段/
+      );
+    });
+
+    it('rejects absolute and Windows-drive paths', () => {
+      expect(() => assertSafeSkillResourcePath('/etc/passwd')).toThrow(/相对路径/);
+      expect(() => assertSafeSkillResourcePath('C:/Windows/System32')).toThrow(
+        /相对路径/
+      );
+    });
+
+    it('rejects backslash separators (Windows escape attempt)', () => {
+      expect(() =>
+        assertSafeSkillResourcePath('references\\research\\01.md')
+      ).toThrow(/反斜杠/);
+    });
+
+    it('rejects roots outside references / examples', () => {
+      expect(() => assertSafeSkillResourcePath('SKILL.md')).toThrow(
+        /必须以 references/
+      );
+      expect(() => assertSafeSkillResourcePath('LICENSE')).toThrow(
+        /必须以 references/
+      );
+      expect(() => assertSafeSkillResourcePath('avatar.png')).toThrow(
+        /必须以 references/
+      );
+    });
+
+    it('rejects bare root directory without subpath', () => {
+      expect(() => assertSafeSkillResourcePath('references')).toThrow(/缺少子路径/);
+      expect(() => assertSafeSkillResourcePath('examples')).toThrow(/缺少子路径/);
+      expect(() => assertSafeSkillResourcePath('references/')).toThrow(/非法段/);
     });
   });
 });

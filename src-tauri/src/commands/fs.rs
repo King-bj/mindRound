@@ -235,6 +235,97 @@ pub async fn agent_search_file(args: SearchFileArgs) -> Result<Vec<SearchHit>, S
     Ok(hits)
 }
 
+// ===================== 数据目录递归解析 =====================
+
+#[derive(Debug, Deserialize)]
+pub struct ResolveDataPathArgs {
+    /// 待解析的裸文件名（不含目录分隔符）
+    pub name: String,
+    /// 数据目录绝对路径，作为递归根
+    pub data_dir: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ResolveDataPathResult {
+    /// 命中的绝对路径列表，最多 5 条；调用方自行处理 0/1/多 三种语义
+    pub matches: Vec<String>,
+}
+
+/// 递归解析上限（防止超大目录卡顿）
+const RESOLVE_MAX_MATCHES: usize = 5;
+
+/// 在 `data_dir` 下递归查找文件名等于 `name` 的条目（不区分大小写）
+///
+/// 仅匹配文件，不匹配目录；显式跳过隐藏目录（如 `.fingerprint`）以避免误命中。
+/// 返回的 `matches` 按修改时间（mtime）降序排序，便于调用方在多命中时直接取首条
+/// 作为"最新版本"。最多返回 [`RESOLVE_MAX_MATCHES`] 条。
+#[tauri::command]
+pub async fn agent_resolve_data_path(
+    args: ResolveDataPathArgs,
+) -> Result<ResolveDataPathResult, String> {
+    resolve_data_path_inner(&args.name, &args.data_dir)
+}
+
+fn resolve_data_path_inner(name: &str, data_dir: &str) -> Result<ResolveDataPathResult, String> {
+    let name = name.trim();
+    if name.is_empty() {
+        return Err("name 为空".to_string());
+    }
+    if name.contains('/') || name.contains('\\') {
+        return Err("name 必须是裸文件名，不可包含路径分隔符".to_string());
+    }
+    let data_dir = data_dir.trim();
+    if data_dir.is_empty() {
+        return Err("data_dir 为空".to_string());
+    }
+    let root = PathBuf::from(data_dir);
+    if !root.is_dir() {
+        return Err(format!("data_dir 不存在或不是目录：{}", data_dir));
+    }
+
+    let target_lower = name.to_ascii_lowercase();
+    // (mtime, abs_path)；先全收，再按 mtime 降序排序
+    let mut hits: Vec<(std::time::SystemTime, String)> = Vec::new();
+
+    let walker = ignore::WalkBuilder::new(&root)
+        .hidden(true)
+        .git_ignore(false)
+        .git_global(false)
+        .git_exclude(false)
+        .follow_links(false)
+        .build();
+
+    for entry in walker.flatten() {
+        let p = entry.path();
+        if !p.is_file() {
+            continue;
+        }
+        let Some(fname) = p.file_name().and_then(|s| s.to_str()) else {
+            continue;
+        };
+        if fname.to_ascii_lowercase() != target_lower {
+            continue;
+        }
+        // 取 mtime；读不到则用 UNIX_EPOCH 兜底（排序时落到末尾）
+        let mtime = p
+            .metadata()
+            .and_then(|m| m.modified())
+            .unwrap_or(std::time::UNIX_EPOCH);
+        let abs_str = strip_unc_prefix(&p.to_string_lossy());
+        hits.push((mtime, abs_str));
+    }
+
+    // 按 mtime 降序：最新的排在最前
+    hits.sort_by(|a, b| b.0.cmp(&a.0));
+    let matches: Vec<String> = hits
+        .into_iter()
+        .take(RESOLVE_MAX_MATCHES)
+        .map(|(_, p)| p)
+        .collect();
+
+    Ok(ResolveDataPathResult { matches })
+}
+
 // ===================== 路径校验 =====================
 
 /// 返回 canonical 化后的绝对路径，并做 sandbox / 保留目录 / 路径穿越校验
@@ -435,6 +526,62 @@ mod tests {
         let ctx = ctx_with_roots(vec![root.to_str().unwrap()]);
         let p = resolve_and_validate(f.to_str().unwrap(), &ctx, true).unwrap();
         assert!(p.ends_with("a.txt"));
+    }
+
+    #[test]
+    fn resolve_data_path_finds_unique_match() {
+        let tmp = std::env::temp_dir().join("mr_resolve_unique");
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(tmp.join("sub/inner")).unwrap();
+        let f = tmp.join("sub/inner/notes_unique.md");
+        std::fs::write(&f, "x").unwrap();
+
+        let r = resolve_data_path_inner("notes_unique.md", tmp.to_str().unwrap()).unwrap();
+        assert_eq!(r.matches.len(), 1);
+        assert!(r.matches[0].to_lowercase().ends_with("notes_unique.md"));
+    }
+
+    #[test]
+    fn resolve_data_path_returns_empty_when_missing() {
+        let tmp = std::env::temp_dir().join("mr_resolve_empty");
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).unwrap();
+        std::fs::write(tmp.join("other.txt"), "x").unwrap();
+
+        let r = resolve_data_path_inner("missing.md", tmp.to_str().unwrap()).unwrap();
+        assert_eq!(r.matches.len(), 0);
+    }
+
+    #[test]
+    fn resolve_data_path_collects_multiple_matches_newest_first() {
+        let tmp = std::env::temp_dir().join("mr_resolve_multi");
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(tmp.join("a")).unwrap();
+        std::fs::create_dir_all(tmp.join("b")).unwrap();
+        // 先写老文件，再 sleep 后写新文件，确保 mtime 排序稳定
+        std::fs::write(tmp.join("a/dup.md"), "old").unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(1100));
+        std::fs::write(tmp.join("b/dup.md"), "new").unwrap();
+
+        let r = resolve_data_path_inner("dup.md", tmp.to_str().unwrap()).unwrap();
+        assert_eq!(r.matches.len(), 2);
+        // 最新的（b/dup.md）应排在最前
+        assert!(
+            r.matches[0].replace('\\', "/").ends_with("/b/dup.md"),
+            "expected newest first, got: {:?}",
+            r.matches
+        );
+        assert!(r.matches[1].replace('\\', "/").ends_with("/a/dup.md"));
+    }
+
+    #[test]
+    fn resolve_data_path_rejects_path_separators() {
+        let err = resolve_data_path_inner(
+            "sub/foo.md",
+            std::env::temp_dir().to_str().unwrap(),
+        )
+        .unwrap_err();
+        assert!(err.contains("裸文件名"));
     }
 
     #[test]

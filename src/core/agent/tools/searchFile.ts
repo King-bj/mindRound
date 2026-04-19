@@ -3,6 +3,7 @@
  */
 import type { ITool, ToolRunContext } from '../types';
 import { invoke } from '../invoke';
+import { isAbsolutePath, joinDataDir } from './pathResolve';
 
 interface Args {
   pattern: string;
@@ -20,14 +21,15 @@ interface SearchHit {
 export const searchFileTool: ITool<Args> = {
   name: 'search_file',
   description:
-    '按正则 pattern 在目录内递归搜索文件内容。支持 glob 过滤（如 "*.ts"）。默认遵循 .gitignore。',
+    '按正则 pattern 在目录内递归搜索文件内容。支持 glob 过滤（如 "*.ts"）。默认遵循 .gitignore。' +
+    '相对路径或缺省时以数据目录为根。',
   parameters: {
     type: 'object',
     properties: {
       pattern: { type: 'string', description: '正则表达式（Rust 语法）' },
       path: {
         type: 'string',
-        description: '搜索根目录，默认当前工作目录',
+        description: '搜索根目录；缺省或相对路径以数据目录为基准',
       },
       glob: {
         type: 'string',
@@ -46,10 +48,11 @@ export const searchFileTool: ITool<Args> = {
   permission: 'readonly-sandbox',
   cacheable: true,
   async run(args: Args, ctx: ToolRunContext): Promise<string> {
+    const resolvedPath = resolveSearchPath(args.path, ctx.dataDir);
     const hits = await invoke<SearchHit[]>('agent_search_file', {
       args: {
         pattern: args.pattern,
-        path: args.path ?? null,
+        path: resolvedPath,
         glob: args.glob ?? null,
         max_results: args.maxResults ?? 50,
         allow_outside_sandbox: ctx.allowOutsideSandbox,
@@ -64,3 +67,16 @@ export const searchFileTool: ITool<Args> = {
       .join('\n');
   },
 };
+
+/**
+ * 把 search_file 的可选 path 归一化为搜索根目录
+ * @description 缺省 / "." / "/" 一律用数据目录；绝对路径原样；相对路径拼到数据目录下
+ */
+function resolveSearchPath(input: string | undefined, dataDir: string): string {
+  const p = (input ?? '').trim();
+  if (!p || p === '.' || p === './' || p === '/' || p === '\\') {
+    return dataDir;
+  }
+  if (isAbsolutePath(p)) return p;
+  return joinDataDir(dataDir, p);
+}

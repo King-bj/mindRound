@@ -3,34 +3,12 @@
  * @description 显示已导入的作者列表，支持搜索、刷新与导入 skill 包（桌面端）
  */
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { convertFileSrc } from '@tauri-apps/api/core';
 import { User, EmptyContactsIllustration, Plus } from '../components/Icons';
 import type { Persona } from '../../core/domain/Persona';
 import type { IPersonaRepository } from '../../core/repositories/IPersonaRepository';
 import type { IPersonaService } from '../../core/services/PersonaService';
 import type { IPlatformAdapter } from '../../core/infrastructure/platforms/IPlatformAdapter';
-
-function isTauriRuntime(): boolean {
-  if (typeof window === 'undefined') {
-    return false;
-  }
-  const w = window as Window & { __TAURI__?: unknown; __TAURI_INTERNALS__?: unknown };
-  return !!(w.__TAURI__ ?? w.__TAURI_INTERNALS__);
-}
-
-function toAvatarDisplayUrl(absolutePath: string | null): string | null {
-  if (!absolutePath) {
-    return null;
-  }
-  if (isTauriRuntime()) {
-    try {
-      return convertFileSrc(absolutePath);
-    } catch {
-      return absolutePath;
-    }
-  }
-  return absolutePath;
-}
+import { isTauriRuntime, toAvatarDisplayUrl } from '../utils/avatarUrl';
 
 interface ContactsPageProps {
   personaRepository: IPersonaRepository;

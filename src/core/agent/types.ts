@@ -19,6 +19,11 @@ export type ToolPermission = 'readonly-sandbox' | 'read-any' | 'write' | 'exec';
 export interface ToolRunContext {
   /** sandbox 根目录列表（appData + 用户添加的工作文件夹） */
   sandboxRoots: string[];
+  /**
+   * 数据目录绝对路径（appData 根）
+   * @description 工具收到相对路径时，缺省以此目录为基准做归一化或递归查找。
+   */
+  dataDir: string;
   /** 用户是否已授权访问 sandbox 外（由 PermissionService 决策填入） */
   allowOutsideSandbox: boolean;
   /** 搜索引擎提供者 */

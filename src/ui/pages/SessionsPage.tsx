@@ -5,6 +5,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Users, EmptyChatsIllustration } from '../components/Icons';
 import { formatRelativeTime } from '../../core/utils/time';
+import { toAvatarDisplayUrl } from '../utils/avatarUrl';
 import type { Chat } from '../../core/domain/Chat';
 import type { IChatService } from '../../core/services/ChatService';
 import type { IPersonaRepository } from '../../core/repositories/IPersonaRepository';
@@ -40,6 +41,8 @@ export const SessionsPage: React.FC<SessionsPageProps> = ({
   const [chats, setChats] = useState<Chat[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [personaNames, setPersonaNames] = useState<Record<string, string>>({});
+  /** persona.id -> 绝对路径头像；用于左侧会话列表显示 */
+  const [personaAvatars, setPersonaAvatars] = useState<Record<string, string | null>>({});
 
   // 这两个回调当前由父层 header 承载交互，保留在 props 中以维持组件接口稳定。
   void _onCreateGroup;
@@ -55,10 +58,13 @@ export const SessionsPage: React.FC<SessionsPageProps> = ({
       setChats(allChats);
 
       const names: Record<string, string> = {};
+      const avatars: Record<string, string | null> = {};
       personas.forEach((p) => {
         names[p.id] = p.name;
+        avatars[p.id] = p.avatar ?? null;
       });
       setPersonaNames(names);
+      setPersonaAvatars(avatars);
     } catch (err) {
       console.error('Failed to load chats:', err);
     } finally {
@@ -128,6 +134,10 @@ export const SessionsPage: React.FC<SessionsPageProps> = ({
             const displayName = isGroup
               ? chat.title
               : personaNames[chat.personaIds[0]] || chat.personaIds[0];
+            // 单聊：若该 persona 有头像则展示图片，否则回退到首字母
+            const avatarSrc = !isGroup
+              ? toAvatarDisplayUrl(personaAvatars[chat.personaIds[0]] ?? null)
+              : null;
 
             const timeLabel = formatRelativeTime(chat.updatedAt);
             return (
@@ -142,6 +152,8 @@ export const SessionsPage: React.FC<SessionsPageProps> = ({
                 <div className="wechat-avatar" aria-hidden="true">
                   {isGroup ? (
                     <Users size={20} strokeWidth={1.75} />
+                  ) : avatarSrc ? (
+                    <img src={avatarSrc} alt="" />
                   ) : (
                     <span>{displayName[0] || '?'}</span>
                   )}

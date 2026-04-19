@@ -18,6 +18,7 @@ import {
   openInDefaultBrowser,
   shouldOpenExternally,
 } from '../utils/openInDefaultBrowser';
+import { toAvatarDisplayUrl } from '../utils/avatarUrl';
 
 interface MessageBubbleProps {
   /** 消息角色 */
@@ -69,10 +70,11 @@ function MessageAvatarFace({
   src?: string | null;
 }) {
   const initial = (label || '?').slice(0, 1).toUpperCase();
+  const url = toAvatarDisplayUrl(src);
   return (
     <div className="message-avatar" aria-hidden="true">
-      {src ? (
-        <img src={src} alt="" />
+      {url ? (
+        <img src={url} alt="" />
       ) : (
         <span className="message-avatar-fallback">{initial}</span>
       )}

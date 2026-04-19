@@ -167,7 +167,10 @@ function App() {
     [platformAdapter]
   );
 
-  const toolRegistry = useMemo(() => createDefaultRegistry(), []);
+  const toolRegistry = useMemo(
+    () => createDefaultRegistry({ personaRepo }),
+    [personaRepo]
+  );
 
   const agent = useMemo(
     () =>
@@ -190,7 +193,7 @@ function App() {
           } catch {
             // 默认沙箱与 DDG 不需要 key
           }
-          return { sandboxRoots, searchProvider, searchApiKey };
+          return { sandboxRoots, dataDir, searchProvider, searchApiKey };
         },
       }),
     [apiRepo, toolRegistry, permissionService, toolResultCache, configRepo, platformAdapter]

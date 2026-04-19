@@ -75,6 +75,46 @@ describe('PermissionService', () => {
     expect(confirm).toHaveBeenCalledTimes(2);
   });
 
+  it('相对路径读操作直接放行（数据目录归一化由工具完成）', async () => {
+    const service = new PermissionService(async () => ['C:/work']);
+    const confirm = vi.fn();
+    service.confirmHandler = confirm;
+
+    const result = await service.authorize(READ_TOOL, {
+      path: 'mindRound-from-zero-to-one.md',
+    });
+
+    expect(confirm).not.toHaveBeenCalled();
+    expect(result).toEqual({ allowed: true, allowOutsideSandbox: false });
+  });
+
+  it('相对路径含子目录的读操作也直接放行', async () => {
+    const service = new PermissionService(async () => ['C:/work']);
+    const confirm = vi.fn();
+    service.confirmHandler = confirm;
+
+    const result = await service.authorize(READ_TOOL, {
+      path: 'data/notes/today.md',
+    });
+
+    expect(confirm).not.toHaveBeenCalled();
+    expect(result).toEqual({ allowed: true, allowOutsideSandbox: false });
+  });
+
+  it('相对路径写操作直接放行，不再弹框', async () => {
+    const service = new PermissionService(async () => ['C:/work']);
+    const confirm = vi.fn();
+    service.confirmHandler = confirm;
+
+    const result = await service.authorize(WRITE_TOOL, {
+      path: 'note.md',
+      content: 'x',
+    });
+
+    expect(confirm).not.toHaveBeenCalled();
+    expect(result).toEqual({ allowed: true, allowOutsideSandbox: false });
+  });
+
   it('用户拒绝时返回 deny', async () => {
     const service = new PermissionService(async () => ['C:/work']);
     service.confirmHandler = vi.fn().mockResolvedValue('deny');

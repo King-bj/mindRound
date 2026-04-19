@@ -18,3 +18,5 @@ export {
 } from './ContextTrimmer';
 export type { TrimOptions } from './ContextTrimmer';
 export { createDefaultRegistry, BUILTIN_TOOLS } from './tools/registry';
+export type { RegistryDeps } from './tools/registry';
+export { createSkillTools } from './tools/skillResources';
