@@ -13,6 +13,8 @@ export {
   ArrowLeft,
   User,
   Send,
+  Paperclip,
+  Smile,
   X,
   ChevronRight,
   Loader2,

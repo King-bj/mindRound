@@ -17,6 +17,12 @@ interface SessionsPageProps {
   onContacts: () => void;
   /** 桌面分栏时当前选中的会话（高亮列表项） */
   selectedChatId?: string | null;
+  /** 为 true 时隐藏内置搜索条（由侧栏 `side-search` 承载） */
+  hideSearchBar?: boolean;
+  /** 侧栏搜索框同步的过滤关键字（不区分大小写，匹配标题/人格名） */
+  filterQuery?: string;
+  /** 父组件在新建会话等场景递增，用于触发重新加载列表 */
+  listVersion?: number;
 }
 
 export const SessionsPage: React.FC<SessionsPageProps> = ({
@@ -24,6 +30,9 @@ export const SessionsPage: React.FC<SessionsPageProps> = ({
   personaRepository,
   onSelectChat,
   selectedChatId = null,
+  hideSearchBar = false,
+  filterQuery = '',
+  listVersion = 0,
   // 预留功能参数：暂未实现
   onCreateGroup: _onCreateGroup,
   onContacts: _onContacts,
@@ -59,12 +68,12 @@ export const SessionsPage: React.FC<SessionsPageProps> = ({
 
   useEffect(() => {
     loadChats();
-  }, [loadChats]);
+  }, [loadChats, listVersion]);
 
-  /** 单聊按人格去重（列表按更新时间排序，保留每人最新的一条；避免历史重复数据占两行） */
+  /** 单聊按人格去重（列表按更新时间排序，保留每人最新的一条；避免历史重复数据占两行），再按 `filterQuery` 过滤 */
   const displayChats = useMemo(() => {
     const seenPersona = new Set<string>();
-    return chats.filter((chat) => {
+    const deduped = chats.filter((chat) => {
       if (chat.type !== 'single' || chat.personaIds.length !== 1) {
         return true;
       }
@@ -75,18 +84,32 @@ export const SessionsPage: React.FC<SessionsPageProps> = ({
       seenPersona.add(pid);
       return true;
     });
-  }, [chats]);
+
+    const q = filterQuery.trim().toLowerCase();
+    if (!q) return deduped;
+
+    return deduped.filter((chat) => {
+      const isGroup = chat.type === 'group';
+      const displayName = isGroup
+        ? chat.title
+        : personaNames[chat.personaIds[0]] || chat.personaIds[0];
+      const hay = `${displayName} ${isGroup ? '' : chat.personaIds[0] ?? ''}`.toLowerCase();
+      return hay.includes(q);
+    });
+  }, [chats, filterQuery, personaNames]);
 
   return (
     <div className="sessions-page-inner">
-      <div className="wechat-search-bar" role="search">
-        <input
-          type="search"
-          placeholder="搜索"
-          className="wechat-search-input"
-          aria-label="搜索会话"
-        />
-      </div>
+      {!hideSearchBar ? (
+        <div className="wechat-search-bar" role="search">
+          <input
+            type="search"
+            placeholder="搜索"
+            className="wechat-search-input"
+            aria-label="搜索会话"
+          />
+        </div>
+      ) : null}
 
       <div className="chat-list" role="list" aria-label="会话列表">
         {displayChats.length === 0 && !isLoading ? (

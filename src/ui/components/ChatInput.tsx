@@ -3,6 +3,7 @@
  * @description 用户输入消息的输入框组件，支持发送按钮和键盘快捷键
  */
 import React, { useState, useRef, useCallback } from 'react';
+import { Paperclip, Smile, Send } from './Icons';
 
 interface ChatInputProps {
   /** 发送消息回调 */
@@ -65,6 +66,24 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   return (
     <div className="chat-input-wrap">
       <div className="chat-input-container">
+        <button
+          type="button"
+          className="chat-input-icon-btn"
+          aria-label="附件（即将推出）"
+          disabled
+          title="附件"
+        >
+          <Paperclip size={22} strokeWidth={2} />
+        </button>
+        <button
+          type="button"
+          className="chat-input-icon-btn"
+          aria-label="表情（即将推出）"
+          disabled
+          title="表情"
+        >
+          <Smile size={22} strokeWidth={2} />
+        </button>
         <textarea
           ref={textareaRef}
           className="chat-input-textarea"
@@ -76,14 +95,21 @@ export const ChatInput: React.FC<ChatInputProps> = ({
           rows={1}
         />
         <button
-          className="chat-input-send-btn"
+          className="chat-input-send-btn chat-input-send-btn-icon"
           onClick={handleSend}
           disabled={disabled || !value.trim()}
           type="button"
+          aria-label="发送消息"
+          title="发送"
         >
-          发送
+          <Send size={20} strokeWidth={2.25} />
         </button>
       </div>
+      {!disabled ? (
+        <p className="chat-input-shortcut-hint" aria-hidden="true">
+          Enter 发送 · Shift + Enter 换行
+        </p>
+      ) : null}
       {disabled && statusHint ? (
         <p className="chat-input-status-hint" role="status" aria-live="polite">
           {statusHint}

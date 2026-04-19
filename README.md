@@ -1,107 +1,158 @@
 # MindRound 观思集
 
-跨平台深度阅读与对话应用。用户与「作者人格」对话，支持单聊与群聊（圆桌）。当前版本在「纯对话」之上接入了 **Agent 循环**：模型可调用联网与本地工具，人物卡（Persona）的 `SKILL.md` 作为系统提示注入。
+> 和你读过的书的作者聊天。本地运行，使用自己的 API Key，数据留在本机。
 
-## 核心能力
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](./LICENSE)
+[![Platform](https://img.shields.io/badge/platform-Windows-0078D6)](#下载与安装)
+[![Built with Tauri](https://img.shields.io/badge/Built%20with-Tauri%202-24C8DB)](https://tauri.app)
+[![Release](https://img.shields.io/badge/release-v0.1.0-brightgreen)](https://github.com/King-bj/mindRound/releases)
 
-- **单聊 / 群聊**：群聊按 `personaIds` 顺序圆桌发言；群聊上下文会映射他人发言并**不共享**工具轨迹，避免噪声。
-- **Agent**：OpenAI 兼容 API，`tools` + 流式 SSE；多轮直到 `finish_reason !== tool_calls` 或达到迭代上限。
-- **工具**：联网（`web_search` / `web_fetch`）与本地（`read_file` / `write_file` / `update_file` / `search_file` / `execute_command`）均在 **Tauri Rust 命令**中执行，前端通过 `invoke` 调用。
-- **权限**：读沙箱内可静默；读沙箱外、一切写与执行需用户确认（可「仅此次」或「本会话允许」）。
-- **缓存**：可缓存工具按 chat 持久化到 `chats/<id>/tool_cache.json`，减少重复搜索/读取。
-- **长上下文**：对历史中的 tool 结果做折叠占位，并可在 user 边界裁切消息条数。
+**MindRound**（观书见意，集思论道）是一个把"作者人格"本地化的桌面应用。你可以和一位作者单独聊天，也可以把多位作者拉到一个"圆桌"里就同一个话题轮流发言。模型调用 OpenAI 兼容 API，数据与人物卡都只在本机。
 
-## 技术结构（分层）
+---
 
-| 层级 | 职责 |
-|------|------|
-| **UI** | 页面、气泡（含 `toolCalls` / `role=tool` 折叠展示）、权限确认弹框、设置中的搜索引擎与工作目录 |
-| **ChatService** | 用户消息入库 → 调用 `Agent.run()` → 流式/落库消息回调 UI；记忆摘要时过滤 tool 并弱化 `toolCalls` |
-| **Agent** | 组装 `messages` + `tools` → SSE 解析 → 工具执行（缓存 → 权限 → `invoke`）→ 回喂模型 |
-| **HttpApiRepository** | OpenAI 兼容 `chat` 流：`text_delta` / `tool_call_delta` / `done` |
-| **ToolRegistry** | 内置 7 个工具的 schema 与 `ITool.run` |
-| **PermissionService** | 按工具权限类与用户决策生成是否允许及是否绕过沙箱 |
-| **ToolResultCache** | 按工具名 + 规范化参数哈希缓存结果 |
-| **ContextTrimmer** | 折叠较早的 tool 内容、按 user 边界截断 |
-| **Tauri commands** | `agent_*`：搜索、抓取（含 SSRF 校验）、文件、执行命令（超时与硬拒绝规则） |
+## 能做什么
 
-数据与持久化仍走既有 **Repository + 文件型存储**（聊天目录、消息 JSON、记忆 Markdown 等）。
+- **单聊**：和一位作者人格一对一对话。每张人物卡就是一个带 `SKILL.md` 的文件夹。
+- **群聊 / 圆桌**：把多位作者放进同一个会话，按顺序轮流发言，上下文互不污染工具轨迹。
+- **Agent 工具**：模型可以调用联网搜索、网页抓取、本地文件读写、执行命令；所有写操作与越界读取都需要你授权。
+- **本地优先**：人物卡、聊天记录、长期记忆 `memory.md` 全部是本机文件，随时可备份、可导出。
+- **使用自己的 Key**：OpenAI 兼容的 Base URL + API Key + Model 三项填好即可，支持主流兼容服务。
 
-## 近期变更摘要（Agent 化）
+---
 
-- 消息模型对齐 OpenAI 线格式：`assistant.toolCalls`、`role: 'tool'` 与 `toolCallId` / `name` / `cached`。
-- 前端 `HttpApiRepository` 支持流式 tool_calls；`Agent` 实现多轮 tool 循环。
-- 新增 `src/core/agent/`：`types`、`Agent`、`PermissionService`、`ToolResultCache`、`ContextTrimmer`、`tools/*`、`invoke`。
-- `src-tauri` 增加 `search` / `fetch` / `fs` / `exec` 等命令及单元测试（DDG 解析、SSRF、沙箱、exec 超时等）。
-- 设置页：搜索引擎（DDG / Tavily / Serper）与额外工作沙箱目录；`App` 装配 Agent、缓存与权限弹框（含移动端全屏分支）。
-- Windows 打包：`tauri.conf.json` 中 `bundle.targets` 为 **nsis**，identifier 为 `com.mindround`。
+## 下载与安装
 
-## 项目结构（关键路径）
+### Windows（推荐）
 
-```
-mindRound/
-├── src/
-│   ├── core/
-│   │   ├── agent/                 # Agent 循环、权限、缓存、裁剪、工具注册与实现
-│   │   ├── domain/                # Chat、MessageDTO（含 tool 相关字段）
-│   │   ├── repositories/          # IApiRepository、IConfigRepository 等
-│   │   ├── services/              # ChatService、ContextBuilderService、MemoryService …
-│   │   └── infrastructure/        # HttpApiRepository、FileChatRepository、平台适配器
-│   ├── ui/
-│   │   ├── pages/                 # ChatPage、SettingsPage、SessionsPage …
-│   │   ├── components/            # MessageBubble、PermissionConfirmDialog …
-│   │   └── stores/                # Zustand
-│   └── App.tsx                    # Agent / Permission / ChatService 装配入口
-├── src-tauri/
-│   ├── src/commands/              # agent_web_search、agent_web_fetch、agent_*_file、agent_execute_command …
-│   └── tauri.conf.json            # 打包：当前 Windows 目标为 nsis
-└── docs/                          # 设计文档
-```
+1. 到 [Releases](https://github.com/King-bj/mindRound/releases) 下载 `MindRound_0.1.0_x64-setup.exe`。
+2. 双击安装，首次启动会在 `%APPDATA%/MindRound` 创建数据目录。
 
-## 配置说明（与应用相关）
-
-- **API**：Base URL、API Key、Model（设置页「API 配置」）。
-- **Agent 搜索**：`searchProvider`（`ddg` | `tavily` | `serper`）与可选 `searchApiKey`（非 DDG 时需要）。
-- **工作沙箱**：`sandboxFolders` 为额外根目录；应用数据目录始终作为沙箱根之一（读沙箱内读文件通常不需弹窗）。
-
-配置持久化由 `FileConfigRepository` 等负责，具体字段见 `src/core/repositories/IConfigRepository.ts`。
-
-## Windows 打包产物
-
-执行 `npm run tauri build` 后（需本机 Rust / NSIS 依赖由 Tauri CLI 拉取或已就绪）：
-
-- **安装包（NSIS）**：`src-tauri/target/release/bundle/nsis/MindRound_<version>_x64-setup.exe`
-- **可直接运行的 exe**：`src-tauri/target/release/app.exe`（便携分发可把该文件与 Tauri 运行时依赖一并考虑；安装包方式更省事）
-
-## 开发命令
+### 从源码运行
 
 ```bash
-npm run dev          # 前端 Vite 开发
-npm run build        # tsc -b + vite 生产构建（Tauri beforeBuildCommand 同源）
-npm run test         # Vitest（可加 --run 做单次执行）
-npm run type-check   # 类型检查
-npm run lint         # ESLint
-npm run coverage     # 测试覆盖率
-npm run tauri dev    # Tauri 开发
-npm run tauri build # Tauri 生产打包（当前 Windows 为 NSIS）
+git clone https://github.com/King-bj/mindRound.git
+cd mindRound
+npm install
+npm run tauri dev       # 开发模式
+npm run tauri build     # 本地打包（生成 NSIS 安装包与可执行文件）
 ```
 
-Rust 侧单元测试：
+环境要求：Node 18+、Rust 工具链（Tauri CLI 会在首次打包时拉取 NSIS 依赖）。
 
-```bash
-cd src-tauri && cargo test
+---
+
+## 一分钟上手
+
+```
+1. 打开「设置」→ 填入 Base URL / API Key / Model → 保存
+2. 准备一张人物卡：随便一个文件夹，里面放一份 SKILL.md（可再加 avatar.png）
+3. 把这个文件夹复制到 数据目录/personae/ 下
+4. 回到「通讯录」→ 点「刷新」→ 作者出现 → 点开就能聊
+5. 想开圆桌：在「会话」点 [+]，勾 2 位以上作者，给群起个名字
 ```
 
-## 项目状态
+最小的一张 `SKILL.md` 示例：
 
-**阶段**：开发中（MVP 演进中，已具备 Agent + 工具链与 Windows NSIS 打包路径）。
+```markdown
+---
+name: 乔布斯
+description: 苹果联合创始人
+---
 
-## 开发规范
+你是一位产品设计师，崇尚简约和专注……
+```
 
-详见 [CLAUDE.md](./CLAUDE.md)
+---
 
-## 文档
+## 数据目录
 
-- [详细设计](./docs/详细设计.md)
-- [MVP功能清单](./docs/MVP功能清单.md)
-- [开发测试计划](./docs/开发测试计划.md)
+应用所有数据都在一个你可见的文件夹下，默认：
+
+```
+%APPDATA%/MindRound/
+├── personae/              # 作者库，每个子目录是一张人物卡
+│   └── <name>/
+│       ├── SKILL.md       # 必需，整文件作为该作者的 system prompt
+│       └── avatar.png     # 可选
+├── chats/                 # 所有会话
+│   └── <uuid>/
+│       ├── meta.json      # 会话元数据
+│       ├── messages.json  # 消息历史
+│       ├── memory.md      # 长期记忆（按策略自动更新）
+│       └── tool_cache.json  # 可缓存工具的结果（Agent 模式）
+└── settings.json          # API 与工作沙箱等配置
+```
+
+需要换位置，在「设置 → 数据目录」指定即可。
+
+---
+
+## 配置要点
+
+| 设置 | 说明 |
+|---|---|
+| **API** | Base URL、API Key、Model。任何 OpenAI 兼容服务都可以。 |
+| **搜索引擎** | `ddg`（默认，免 Key）/ `tavily` / `serper`，后两者需要各自的 API Key。 |
+| **工作沙箱** | `sandboxFolders`：允许 Agent 免确认读取的额外根目录。应用数据目录本身始终在沙箱内。 |
+| **权限粒度** | 读沙箱内静默；读越界、写、执行命令都会弹出确认，可选"仅此次"或"本会话允许"。 |
+
+---
+
+## 上下文规则（为什么回答质量稳定）
+
+每次请求模型，发出的上下文按固定顺序拼装：
+
+1. **系统消息**：当前发言作者的 `SKILL.md` 全文。
+2. **长期记忆**：该会话的 `memory.md`（空闲时自动摘要历史）。
+3. **近期窗口**：距请求时刻往前 **30 分钟**内的消息。
+
+群聊中每一跳对应"当前发言的那位作者"，其他作者的消息作为对话文本传入，但**不共享工具调用轨迹**——这样不会有 A 的联网结果影响 B 的判断。
+
+---
+
+## 技术栈
+
+- **前端**：React 19 + Vite + Tailwind CSS + Zustand
+- **桌面壳**：Tauri 2（Rust）
+- **打包**：Windows NSIS
+- **API 协议**：OpenAI 兼容的 `chat.completions` + SSE 流 + `tools` 字段
+- **存储**：文件系统（JSON + Markdown），无数据库
+
+---
+
+## 路线图
+
+| 阶段 | 做什么 |
+|---|---|
+| **MVP（当前 v0.1.0）** | 单聊 / 圆桌 / Agent 工具 / 权限确认 / Windows 安装包 |
+| **生产部署** | 首次引导、人物卡 GitHub 导入、导出对话、Android 版本 |
+| **优化** | 自动更新、主题切换、备份恢复、人物市场 |
+
+---
+
+## 反馈与贡献
+
+- Issue 与 PR：欢迎提到 [GitHub Issues](https://github.com/King-bj/mindRound/issues)。
+- 开发规范：见 [CLAUDE.md](./CLAUDE.md)。
+- 详细设计与 MVP 拆解：
+  - [docs/plan.md](./docs/plan.md)
+  - [docs/MVP功能清单.md](./docs/MVP功能清单.md)
+  - [docs/详细设计.md](./docs/详细设计.md)
+  - [docs/开发测试计划.md](./docs/开发测试计划.md)
+
+作者：[植木自生](https://docs.jinla.fun) · 博文：[从 0 到 1 做一个「和作者聊天」的桌面应用](https://docs.jinla.fun/articles/mindRound-from-zero-to-one)
+
+---
+
+## 致谢
+
+- [Tauri](https://tauri.app) 让跨平台桌面应用变得轻量可控。
+- OpenAI 兼容协议让自带 Key 的应用能接入绝大多数模型服务。
+- 人物卡灵感来自社区里 `distilled-persona-hall` 的 SKILL 蒸馏思路。
+
+---
+
+## 许可
+
+本项目以 [Apache License 2.0](./LICENSE) 开源。人物卡目录下的 `LICENSE` 文件保留各自的原始许可。

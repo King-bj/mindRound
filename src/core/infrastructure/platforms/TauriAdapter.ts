@@ -178,7 +178,9 @@ export class TauriAdapter implements IPlatformAdapter {
    * @param _key - 密钥名
    * @param _value - 密钥值
    */
-  async setSecureKey(_key: string, _value: string): Promise<void> {
+  async setSecureKey(key: string, value: string): Promise<void> {
+    void key;
+    void value;
     // TODO: 实现安全存储
     // Tauri 2.0 可以使用 @tauri-apps/plugin-secure-storage
     console.warn('[TauriAdapter] setSecureKey not implemented yet');
@@ -189,7 +191,8 @@ export class TauriAdapter implements IPlatformAdapter {
    * @param _key - 密钥名
    * @returns 密钥值，不存在返回 null
    */
-  async getSecureKey(_key: string): Promise<string | null> {
+  async getSecureKey(key: string): Promise<string | null> {
+    void key;
     // TODO: 实现安全存储
     console.warn('[TauriAdapter] getSecureKey not implemented yet');
     return null;

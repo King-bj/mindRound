@@ -47,6 +47,7 @@ export const ContactsPage: React.FC<ContactsPageProps> = ({
   onSelectPersona,
   onBack: _onBack,
 }) => {
+  void _onBack;
   const [personas, setPersonas] = useState<Persona[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [isLoading, setIsLoading] = useState(false);

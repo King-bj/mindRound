@@ -6,7 +6,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { MessageBubble } from '../components/MessageBubble';
 import { ChatInput } from '../components/ChatInput';
 import { GroupChatInfoPanel } from '../components/groupChatInfoPanel';
-import { ArrowLeft, MoreHorizontal } from '../components/Icons';
+import { ArrowLeft, MoreHorizontal, Search } from '../components/Icons';
 import type { Chat, MessageDTO } from '../../core/domain/Chat';
 import type { Persona } from '../../core/domain/Persona';
 import type { IChatService } from '../../core/services/ChatService';
@@ -18,6 +18,8 @@ interface ChatPageProps {
   chatService: IChatService;
   personaRepository: IPersonaRepository;
   onBack: () => void;
+  /** 为 false 时隐藏左上角返回（桌面分栏内由侧栏承担导航） */
+  showBackButton?: boolean;
 }
 
 interface PersonaInfo {
@@ -31,6 +33,7 @@ export const ChatPage: React.FC<ChatPageProps> = ({
   chatService,
   personaRepository,
   onBack,
+  showBackButton = true,
 }) => {
   const [chat, setChat] = useState<Chat | null>(null);
   const [messages, setMessages] = useState<MessageDTO[]>([]);
@@ -164,28 +167,58 @@ export const ChatPage: React.FC<ChatPageProps> = ({
 
   return (
     <div className="chat-page">
-      <header className="wechat-header" role="banner">
-        <button
-          className="wechat-header-btn"
-          onClick={onBack}
-          aria-label="返回"
-        >
-          <ArrowLeft size={20} strokeWidth={2} />
-        </button>
-        <h1 className="wechat-header-title">{getTitle()}</h1>
-        {chat?.type === 'group' ? (
+      <header className="wechat-header chat-page-header" role="banner">
+        <div className="chat-page-header-left">
+          {showBackButton ? (
+            <button
+              type="button"
+              className="wechat-header-btn"
+              onClick={onBack}
+              aria-label="返回"
+            >
+              <ArrowLeft size={20} strokeWidth={2} />
+            </button>
+          ) : (
+            <span className="wechat-header-btn-placeholder" aria-hidden />
+          )}
+        </div>
+        <div className="chat-page-header-center">
+          <h1 className="wechat-header-title chat-page-header-title">{getTitle()}</h1>
+          <div className="chat-page-header-status">
+            <span className="chat-online-dot" aria-hidden />
+            <span>在线</span>
+          </div>
+        </div>
+        <div className="chat-page-header-right">
           <button
             type="button"
-            className="wechat-header-btn"
-            aria-label="群资料与成员"
-            aria-expanded={showGroupPanel}
-            onClick={() => setShowGroupPanel((v) => !v)}
+            className="wechat-header-btn chat-page-header-icon-muted"
+            aria-label="搜索（即将推出）"
+            disabled
           >
-            <MoreHorizontal size={20} strokeWidth={2} />
+            <Search size={18} strokeWidth={2} />
           </button>
-        ) : (
-          <span className="wechat-header-btn-placeholder" aria-hidden />
-        )}
+          {chat?.type === 'group' ? (
+            <button
+              type="button"
+              className="wechat-header-btn"
+              aria-label="群资料与成员"
+              aria-expanded={showGroupPanel}
+              onClick={() => setShowGroupPanel((v) => !v)}
+            >
+              <MoreHorizontal size={20} strokeWidth={2} />
+            </button>
+          ) : (
+            <button
+              type="button"
+              className="wechat-header-btn chat-page-header-icon-muted"
+              aria-label="更多（即将推出）"
+              disabled
+            >
+              <MoreHorizontal size={20} strokeWidth={2} />
+            </button>
+          )}
+        </div>
       </header>
 
       {error && (

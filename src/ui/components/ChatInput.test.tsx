@@ -6,7 +6,7 @@ describe('ChatInput', () => {
   it('should render textarea and send button', () => {
     render(<ChatInput onSend={vi.fn()} />);
     expect(screen.getByRole('textbox')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '发送' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '发送消息' })).toBeInTheDocument();
   });
 
   it('should call onSend when Enter is pressed', () => {
@@ -60,7 +60,7 @@ describe('ChatInput', () => {
     const textarea = screen.getByRole('textbox');
     fireEvent.change(textarea, { target: { value: 'Hello' } });
 
-    const button = screen.getByRole('button', { name: '发送' });
+    const button = screen.getByRole('button', { name: '发送消息' });
     fireEvent.click(button);
 
     expect(onSend).toHaveBeenCalledWith('Hello');
@@ -70,7 +70,7 @@ describe('ChatInput', () => {
     const onSend = vi.fn();
     render(<ChatInput onSend={onSend} />);
 
-    const button = screen.getByRole('button', { name: '发送' });
+    const button = screen.getByRole('button', { name: '发送消息' });
     expect(button).toBeDisabled();
   });
 });

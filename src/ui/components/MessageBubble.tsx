@@ -289,7 +289,7 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
 
   const markdownComponents = useMemo<Components>(
     () => ({
-      a: ({ node: _node, href, children, ...rest }) => {
+      a: ({ href, children, ...rest }) => {
         if (href && shouldOpenExternally(href)) {
           return (
             <a
